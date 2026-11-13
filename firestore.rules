@@ -1,0 +1,224 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Deny All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == 'hbontop01@gmail.com' && request.auth.token.email_verified == true) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Validation functions
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'email', 'displayName']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.email is string && data.email.size() > 0 && data.email.size() <= 150 &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 100 &&
+             (!('bio' in data) || data.bio == null || (data.bio is string && data.bio.size() <= 250)) &&
+             (!('phoneNumber' in data) || data.phoneNumber == null || (data.phoneNumber is string && data.phoneNumber.size() <= 25)) &&
+             (!('photoUrl' in data) || data.photoUrl == null || (data.photoUrl is string && data.photoUrl.size() <= 250000));
+    }
+
+    function isValidChat(data) {
+      return data.keys().hasAll(['id', 'type', 'participants']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             (data.type == 'private' || data.type == 'group') &&
+             data.participants is list && data.participants.size() >= 1 && data.participants.size() <= 500 &&
+             (!('lastMessage' in data) || data.lastMessage == null || (data.lastMessage is string && data.lastMessage.size() <= 1000)) &&
+             (!('name' in data) || data.name == null || (data.name is string && data.name.size() <= 100)) &&
+             (!('description' in data) || data.description == null || (data.description is string && data.description.size() <= 500));
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['id', 'chatId', 'participants', 'senderId', 'type']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.chatId is string && data.chatId.size() > 0 && data.chatId.size() <= 128 &&
+             data.participants is list && data.participants.size() >= 1 && data.participants.size() <= 500 &&
+             (data.type in ['text', 'image', 'video', 'audio', 'document', 'call_log']) &&
+             (!('text' in data) || data.text == null || (data.text is string && data.text.size() <= 5000)) &&
+             (!('mediaUrl' in data) || data.mediaUrl == null || (data.mediaUrl is string && data.mediaUrl.size() <= 750000)) &&
+             (!('fileName' in data) || data.fileName == null || (data.fileName is string && data.fileName.size() <= 255));
+    }
+
+    function isValidGroup(data) {
+      return data.keys().hasAll(['id', 'name', 'createdBy', 'adminIds', 'memberIds']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.createdBy is string && data.createdBy.size() <= 128 &&
+             data.adminIds is list && data.adminIds.size() >= 1 &&
+             data.memberIds is list && data.memberIds.size() >= 1;
+    }
+
+    function isValidStory(data) {
+      return data.keys().hasAll(['id', 'userId', 'userName', 'type', 'createdAt', 'expiresAt']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.userName is string && data.userName.size() <= 100 &&
+             (data.type in ['image', 'text']) &&
+             (!('caption' in data) || data.caption == null || (data.caption is string && data.caption.size() <= 500)) &&
+             (!('mediaUrl' in data) || data.mediaUrl == null || (data.mediaUrl is string && data.mediaUrl.size() <= 750000));
+    }
+
+    function isValidCall(data) {
+      return data.keys().hasAll(['id', 'callerId', 'receiverId', 'type', 'status']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.callerId is string && data.callerId.size() <= 128 &&
+             data.receiverId is string && data.receiverId.size() <= 128 &&
+             (data.type in ['audio', 'video']) &&
+             (data.status in ['calling', 'ringing', 'connected', 'ended', 'rejected', 'missed']);
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'body']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.title is string && data.title.size() <= 150 &&
+             data.body is string && data.body.size() <= 500;
+    }
+
+    function isValidReport(data) {
+      return data.keys().hasAll(['id', 'reporterId', 'reportedUserId', 'reason']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.reporterId == request.auth.uid &&
+             data.reportedUserId is string && data.reportedUserId.size() <= 128 &&
+             data.reason is string && data.reason.size() <= 150;
+    }
+
+    // Admins collection
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isOwner(userId) && isValidUser(incoming()) && (
+        !('role' in incoming()) || incoming().role == 'user' || isAdmin()
+      );
+      allow update: if (isOwner(userId) || isAdmin()) && isValidUser(incoming()) && (
+        (!incoming().diff(existing()).affectedKeys().hasAny(['role'])) || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Chats Collection
+    match /chats/{chatId} {
+      allow get: if isSignedIn() && (request.auth.uid in existing().participants || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
+      allow create: if isSignedIn() && isValidChat(incoming()) && (request.auth.uid in incoming().participants || isAdmin());
+      allow update: if isSignedIn() && (request.auth.uid in existing().participants || isAdmin()) && isValidChat(incoming());
+      allow delete: if isSignedIn() && (request.auth.uid in existing().participants || isAdmin());
+    }
+
+    // Messages Collection
+    match /messages/{messageId} {
+      allow get: if isSignedIn() && (request.auth.uid in existing().participants || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
+      allow create: if isSignedIn() && isValidMessage(incoming()) && incoming().senderId == request.auth.uid && (request.auth.uid in incoming().participants);
+      allow update: if isSignedIn() && (request.auth.uid in existing().participants || isAdmin()) && (
+        // Case 1: Status / delivery / reaction update by participants
+        (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'readBy', 'deliveredTo', 'reactions'])) ||
+        // Case 2: Author edits message text
+        (existing().senderId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['text', 'isEdited', 'updatedAt'])) ||
+        // Case 3: Soft delete
+        (existing().senderId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'text', 'updatedAt'])) ||
+        isAdmin()
+      );
+      allow delete: if isSignedIn() && (existing().senderId == request.auth.uid || isAdmin());
+    }
+
+    // Groups Collection
+    match /groups/{groupId} {
+      allow get: if isSignedIn() && (request.auth.uid in existing().memberIds || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberIds || isAdmin());
+      allow create: if isSignedIn() && isValidGroup(incoming()) && incoming().createdBy == request.auth.uid;
+      allow update: if isSignedIn() && (request.auth.uid in existing().adminIds || isAdmin()) && isValidGroup(incoming());
+      allow delete: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
+    }
+
+    // Stories Collection
+    match /stories/{storyId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidStory(incoming()) && incoming().userId == request.auth.uid;
+      allow update: if isSignedIn() && (
+        existing().userId == request.auth.uid ||
+        incoming().diff(existing()).affectedKeys().hasOnly(['viewers'])
+      );
+      allow delete: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // Calls Collection (WebRTC Signaling & Call History)
+    match /calls/{callId} {
+      allow get, list: if isSignedIn() && (resource.data.callerId == request.auth.uid || resource.data.receiverId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidCall(incoming()) && incoming().callerId == request.auth.uid;
+      allow update: if isSignedIn() && (existing().callerId == request.auth.uid || existing().receiverId == request.auth.uid || isAdmin());
+      allow delete: if isSignedIn() && (existing().callerId == request.auth.uid || existing().receiverId == request.auth.uid || isAdmin());
+
+      match /callerCandidates/{candId} {
+        allow read, write: if isSignedIn() && (
+          get(/databases/$(database)/documents/calls/$(callId)).data.callerId == request.auth.uid ||
+          get(/databases/$(database)/documents/calls/$(callId)).data.receiverId == request.auth.uid
+        );
+      }
+
+      match /calleeCandidates/{candId} {
+        allow read, write: if isSignedIn() && (
+          get(/databases/$(database)/documents/calls/$(callId)).data.callerId == request.auth.uid ||
+          get(/databases/$(database)/documents/calls/$(callId)).data.receiverId == request.auth.uid
+        );
+      }
+    }
+
+    // Notifications Collection
+    match /notifications/{notificationId} {
+      allow get, list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidNotification(incoming());
+      allow update: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin()) &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['isRead']);
+      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Blocked Users Collection
+    match /blocked_users/{blockId} {
+      allow get, list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Reports Collection
+    match /reports/{reportId} {
+      allow get, list: if isSignedIn() && (resource.data.reporterId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidReport(incoming());
+      allow update, delete: if isAdmin();
+    }
+  }
+}

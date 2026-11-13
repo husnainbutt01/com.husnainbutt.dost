@@ -1,0 +1,201 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile in DOST Messaging App",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique user identifier matching auth UID" },
+        "email": { "type": "string", "format": "email", "description": "User email address" },
+        "displayName": { "type": "string", "maxLength": 100, "description": "Display name of the user" },
+        "phoneNumber": { "type": "string", "maxLength": 25, "description": "Phone number" },
+        "photoUrl": { "type": "string", "maxLength": 250000, "description": "Profile picture URL" },
+        "bio": { "type": "string", "maxLength": 250, "description": "Short bio or status quote" },
+        "isOnline": { "type": "boolean", "description": "Whether the user is currently online" },
+        "lastSeen": { "type": "string", "description": "ISO timestamp of last activity" },
+        "role": { "type": "string", "enum": ["user", "admin"], "description": "System role" },
+        "isProfileComplete": { "type": "boolean", "description": "Whether user completed one-time profile setup" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last update timestamp" }
+      },
+      "required": ["id", "email", "displayName"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "Chat thread between two users or group",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique chat thread ID" },
+        "type": { "type": "string", "enum": ["private", "group"], "description": "Direct one-on-one or group chat" },
+        "participants": { "type": "array", "description": "List of user UIDs participating" },
+        "lastMessage": { "type": "string", "maxLength": 1000, "description": "Preview of last message text" },
+        "lastMessageTime": { "type": "string", "description": "Timestamp of last message" },
+        "lastSenderId": { "type": "string", "description": "UID of the last message author" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" }
+      },
+      "required": ["id", "type", "participants"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Individual message sent within a chat",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique message ID" },
+        "chatId": { "type": "string", "description": "Parent chat ID" },
+        "participants": { "type": "array", "description": "Participant UIDs allowed to read this message" },
+        "senderId": { "type": "string", "description": "Author UID" },
+        "senderName": { "type": "string", "maxLength": 100, "description": "Author display name" },
+        "senderPhotoUrl": { "type": "string", "maxLength": 250000, "description": "Author photo URL" },
+        "text": { "type": "string", "maxLength": 5000, "description": "Message text or caption" },
+        "type": { "type": "string", "enum": ["text", "image", "video", "audio", "document", "call_log"], "description": "Message category" },
+        "mediaUrl": { "type": "string", "maxLength": 750000, "description": "Attached media URL" },
+        "fileName": { "type": "string", "maxLength": 255, "description": "File attachment name" },
+        "fileSize": { "type": "string", "description": "Formatted file size" },
+        "duration": { "type": "number", "description": "Audio or call duration in seconds" },
+        "status": { "type": "string", "enum": ["sent", "delivered", "read"], "description": "Delivery status" },
+        "readBy": { "type": "array", "description": "User IDs who marked message as read" },
+        "deliveredTo": { "type": "array", "description": "User IDs who received message" },
+        "replyToMessageId": { "type": "string", "description": "Quoted parent message ID" },
+        "replyToText": { "type": "string", "maxLength": 500, "description": "Quoted message snippet" },
+        "replyToSenderName": { "type": "string", "maxLength": 100, "description": "Quoted author name" },
+        "isEdited": { "type": "boolean", "description": "Whether message was modified" },
+        "isDeleted": { "type": "boolean", "description": "Whether message was retracted" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "chatId", "participants", "senderId", "type"]
+    },
+    "Group": {
+      "title": "Group",
+      "description": "Group metadata and administration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique group ID" },
+        "name": { "type": "string", "maxLength": 100, "description": "Group name" },
+        "description": { "type": "string", "maxLength": 500, "description": "Group description or topic" },
+        "photoUrl": { "type": "string", "maxLength": 250000, "description": "Group avatar icon" },
+        "createdBy": { "type": "string", "description": "Creator UID" },
+        "adminIds": { "type": "array", "description": "List of group administrator UIDs" },
+        "memberIds": { "type": "array", "description": "List of group member UIDs" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" }
+      },
+      "required": ["id", "name", "createdBy", "adminIds", "memberIds"]
+    },
+    "Story": {
+      "title": "Story",
+      "description": "24-hour user status update",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique story ID" },
+        "userId": { "type": "string", "description": "Author UID" },
+        "userName": { "type": "string", "maxLength": 100, "description": "Author name" },
+        "mediaUrl": { "type": "string", "maxLength": 750000, "description": "Media URL or image" },
+        "caption": { "type": "string", "maxLength": 500, "description": "Caption" },
+        "type": { "type": "string", "enum": ["image", "text"], "description": "Story type" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "expiresAt": { "type": "string", "description": "Expiry timestamp" }
+      },
+      "required": ["id", "userId", "userName", "type", "createdAt", "expiresAt"]
+    },
+    "Call": {
+      "title": "Call",
+      "description": "WebRTC call signaling and call history log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique call session ID" },
+        "callerId": { "type": "string", "description": "Caller UID" },
+        "receiverId": { "type": "string", "description": "Receiver UID" },
+        "type": { "type": "string", "enum": ["audio", "video"], "description": "Call media type" },
+        "status": { "type": "string", "enum": ["calling", "ringing", "connected", "ended", "rejected", "missed"], "description": "Call status" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "callerId", "receiverId", "type", "status"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification for incoming messages, calls, or mentions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique notification ID" },
+        "userId": { "type": "string", "description": "Recipient UID" },
+        "senderId": { "type": "string", "description": "Originating user UID" },
+        "senderName": { "type": "string", "maxLength": 100, "description": "Originating user display name" },
+        "senderPhotoUrl": { "type": "string", "maxLength": 250000, "description": "Sender avatar" },
+        "title": { "type": "string", "maxLength": 150, "description": "Notification title" },
+        "body": { "type": "string", "maxLength": 500, "description": "Notification content" },
+        "type": { "type": "string", "enum": ["message", "call", "group_invite", "system"], "description": "Category" },
+        "chatId": { "type": "string", "description": "Associated chat ID" },
+        "isRead": { "type": "boolean", "description": "Whether recipient has acknowledged notification" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "userId", "title", "body"]
+    },
+    "BlockedUser": {
+      "title": "BlockedUser",
+      "description": "Block record to prevent communication",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Blocked user record ID" },
+        "userId": { "type": "string", "description": "UID of user who initiated the block" },
+        "blockedUserId": { "type": "string", "description": "UID of blocked target" },
+        "blockedUserName": { "type": "string", "maxLength": 100, "description": "Target name" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "userId", "blockedUserId"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Abuse or harassment report against a user or message",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Report ID" },
+        "reporterId": { "type": "string", "description": "UID of reporting user" },
+        "reportedUserId": { "type": "string", "description": "UID of reported user" },
+        "reason": { "type": "string", "maxLength": 150, "description": "Reason for report" },
+        "details": { "type": "string", "maxLength": 1000, "description": "Detailed explanation" },
+        "status": { "type": "string", "enum": ["pending", "reviewed", "dismissed"], "description": "Status of the report" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "reporterId", "reportedUserId", "reason"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles and online presence"
+    },
+    "/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/Chat" },
+      "description": "Chat conversations metadata and participants"
+    },
+    "/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "Messages sent across chats"
+    },
+    "/groups/{groupId}": {
+      "schema": { "$ref": "#/entities/Group" },
+      "description": "Group configurations, members, and admin controls"
+    },
+    "/stories/{storyId}": {
+      "schema": { "$ref": "#/entities/Story" },
+      "description": "24-hour user status updates"
+    },
+    "/calls/{callId}": {
+      "schema": { "$ref": "#/entities/Call" },
+      "description": "WebRTC call signaling and history"
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "Targeted push and in-app notifications"
+    },
+    "/blocked_users/{blockId}": {
+      "schema": { "$ref": "#/entities/BlockedUser" },
+      "description": "Blocked users list per account"
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/Report" },
+      "description": "User moderation reports and tickets"
+    }
+  }
+}

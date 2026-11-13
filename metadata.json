@@ -1,0 +1,9 @@
+{
+  "name": "DOST Messaging App",
+  "description": "Production-ready real-time messaging application with private & group chat, WebRTC audio/video calling, voice notes, media sharing, and Firebase backend. Developed by Husnain Butt.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
