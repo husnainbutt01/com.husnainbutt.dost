@@ -1,7 +1,15 @@
-export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'call_log';
+export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'call_log' | 'poll' | 'payment';
 export type MessageStatus = 'pending' | 'sent' | 'delivered' | 'read';
 export type UserRole = 'user' | 'admin';
-export type ChatType = 'private' | 'group';
+export type ChatType = 'private' | 'group' | 'channel' | 'broadcast';
+export type PaymentMethod = 'jazzcash' | 'easypaisa' | 'sadapay' | 'nayapay' | 'raast';
+
+export interface UserPaymentAccount {
+  method: PaymentMethod;
+  accountTitle: string;
+  accountNumber: string; // Mobile wallet number or IBAN
+  updatedAt?: string;
+}
 
 export interface UserPrivacySettings {
   lastSeenVisibility: 'everyone' | 'contacts' | 'nobody';
@@ -31,6 +39,7 @@ export interface User {
   isProfileComplete?: boolean;
   privacySettings?: UserPrivacySettings;
   notificationSettings?: UserNotificationSettings;
+  paymentAccount?: UserPaymentAccount;
   createdAt: string;
   updatedAt?: string;
 }
@@ -38,12 +47,15 @@ export interface User {
 export interface Chat {
   id: string;
   type: ChatType;
-  participants: string[]; // User UIDs
-  name?: string; // For groups
-  photoUrl?: string; // For groups
+  participants: string[]; // User UIDs (for broadcast lists: includes sender + recipients)
+  name?: string; // For groups, channels, broadcast lists
+  photoUrl?: string;
   description?: string;
-  adminIds?: string[]; // For groups
+  adminIds?: string[];
   createdBy?: string;
+  isPublic?: boolean; // For public channels
+  onlyAdminsCanMessage?: boolean; // Group / Channel posting restriction
+  onlyAdminsCanEdit?: boolean; // Group info edit restriction
   lastMessage?: string;
   lastMessageTime?: string;
   lastSenderId?: string;
@@ -61,15 +73,65 @@ export interface MessageReaction {
   emoji: string;
 }
 
+export interface PollOption {
+  id: string;
+  text: string;
+  voterIds: string[];
+}
+
+export interface PollData {
+  question: string;
+  allowMultiple: boolean;
+  options: PollOption[];
+  isClosed?: boolean;
+}
+
+export interface PaymentData {
+  paymentId: string;
+  kind: 'send' | 'request';
+  amount: number;
+  currency: 'PKR';
+  method: PaymentMethod;
+  status: 'pending' | 'sent' | 'completed' | 'declined';
+  receiverId: string;
+  receiverName: string;
+  accountNumber?: string;
+  accountTitle?: string;
+  referenceId?: string;
+  note?: string;
+}
+
+export interface PaymentTransaction {
+  id: string;
+  chatId: string;
+  senderId: string;
+  senderName: string;
+  receiverId: string;
+  receiverName: string;
+  amount: number;
+  currency: 'PKR';
+  method: PaymentMethod;
+  kind: 'send' | 'request';
+  status: 'pending' | 'sent' | 'completed' | 'declined';
+  accountNumber?: string;
+  referenceId?: string;
+  note?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface Message {
   id: string;
   chatId: string;
   participants: string[]; // For secure Firestore query enforcement
+  isPublicChannel?: boolean;
   senderId: string;
   senderName: string;
   senderPhotoUrl?: string;
   text?: string;
   type: MessageType;
+  poll?: PollData;
+  payment?: PaymentData;
   mediaUrl?: string;
   fileName?: string;
   fileSize?: string;
@@ -86,6 +148,18 @@ export interface Message {
   reactions?: MessageReaction[];
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface DeviceSession {
+  id: string;
+  userId: string;
+  deviceId: string;
+  deviceName: string;
+  platform: 'android' | 'desktop' | 'tablet' | 'mobile_web';
+  browserInfo: string;
+  lastActive: string;
+  createdAt: string;
+  revoked?: boolean;
 }
 
 export interface Group {

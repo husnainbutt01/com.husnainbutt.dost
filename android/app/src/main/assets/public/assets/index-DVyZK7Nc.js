@@ -55574,6 +55574,837 @@ var SoundEngine = class {
 	}
 };
 var sounds = new SoundEngine();
+// node_modules/@capacitor/core/dist/index.js
+/*! Capacitor: https://capacitorjs.com/ - MIT License */
+var ExceptionCode;
+(function(ExceptionCode) {
+	/**
+	* API is not implemented.
+	*
+	* This usually means the API can't be used because it is not implemented for
+	* the current platform.
+	*/
+	ExceptionCode["Unimplemented"] = "UNIMPLEMENTED";
+	/**
+	* API is not available.
+	*
+	* This means the API can't be used right now because:
+	*   - it is currently missing a prerequisite, such as network connectivity
+	*   - it requires a particular platform or browser version
+	*/
+	ExceptionCode["Unavailable"] = "UNAVAILABLE";
+})(ExceptionCode || (ExceptionCode = {}));
+var CapacitorException = class extends Error {
+	constructor(message, code, data) {
+		super(message);
+		this.message = message;
+		this.code = code;
+		this.data = data;
+	}
+};
+var getPlatformId = (win) => {
+	var _a, _b;
+	if (win === null || win === void 0 ? void 0 : win.androidBridge) return "android";
+	else if ((_b = (_a = win === null || win === void 0 ? void 0 : win.webkit) === null || _a === void 0 ? void 0 : _a.messageHandlers) === null || _b === void 0 ? void 0 : _b.bridge) return "ios";
+	else return "web";
+};
+var createCapacitor = (win) => {
+	const capCustomPlatform = win.CapacitorCustomPlatform || null;
+	const cap = win.Capacitor || {};
+	const Plugins = cap.Plugins = cap.Plugins || {};
+	const getPlatform = () => {
+		return capCustomPlatform !== null ? capCustomPlatform.name : getPlatformId(win);
+	};
+	const isNativePlatform = () => getPlatform() !== "web";
+	const isPluginAvailable = (pluginName) => {
+		const plugin = registeredPlugins.get(pluginName);
+		if (plugin === null || plugin === void 0 ? void 0 : plugin.platforms.has(getPlatform())) return true;
+		if (getPluginHeader(pluginName)) return true;
+		return false;
+	};
+	const getPluginHeader = (pluginName) => {
+		var _a;
+		return (_a = cap.PluginHeaders) === null || _a === void 0 ? void 0 : _a.find((h) => h.name === pluginName);
+	};
+	const handleError = (err) => win.console.error(err);
+	const registeredPlugins = /* @__PURE__ */ new Map();
+	const registerPlugin = (pluginName, jsImplementations = {}) => {
+		const registeredPlugin = registeredPlugins.get(pluginName);
+		if (registeredPlugin) {
+			console.warn(`Capacitor plugin "${pluginName}" already registered. Cannot register plugins twice.`);
+			return registeredPlugin.proxy;
+		}
+		const platform = getPlatform();
+		const pluginHeader = getPluginHeader(pluginName);
+		let jsImplementation;
+		const loadPluginImplementation = async () => {
+			if (!jsImplementation && platform in jsImplementations) jsImplementation = typeof jsImplementations[platform] === "function" ? jsImplementation = await jsImplementations[platform]() : jsImplementation = jsImplementations[platform];
+			else if (capCustomPlatform !== null && !jsImplementation && "web" in jsImplementations) jsImplementation = typeof jsImplementations["web"] === "function" ? jsImplementation = await jsImplementations["web"]() : jsImplementation = jsImplementations["web"];
+			return jsImplementation;
+		};
+		const createPluginMethod = (impl, prop) => {
+			var _a, _b;
+			if (pluginHeader) {
+				const methodHeader = pluginHeader === null || pluginHeader === void 0 ? void 0 : pluginHeader.methods.find((m) => prop === m.name);
+				if (methodHeader) {
+					if (methodHeader.rtype === "promise") return (options) => cap.nativePromise(pluginName, prop.toString(), options);
+					else return (options, callback) => cap.nativeCallback(pluginName, prop.toString(), options, callback);
+				} else if (impl) return (_a = impl[prop]) === null || _a === void 0 ? void 0 : _a.bind(impl);
+			} else if (impl) return (_b = impl[prop]) === null || _b === void 0 ? void 0 : _b.bind(impl);
+			else throw new CapacitorException(`"${pluginName}" plugin is not implemented on ${platform}`, ExceptionCode.Unimplemented);
+		};
+		const createPluginMethodWrapper = (prop) => {
+			let remove;
+			const wrapper = (...args) => {
+				const p = loadPluginImplementation().then((impl) => {
+					const fn = createPluginMethod(impl, prop);
+					if (fn) {
+						const p = fn(...args);
+						remove = p === null || p === void 0 ? void 0 : p.remove;
+						return p;
+					} else throw new CapacitorException(`"${pluginName}.${prop}()" is not implemented on ${platform}`, ExceptionCode.Unimplemented);
+				});
+				if (prop === "addListener") p.remove = async () => remove();
+				return p;
+			};
+			wrapper.toString = () => `${prop.toString()}() { [capacitor code] }`;
+			Object.defineProperty(wrapper, "name", {
+				value: prop,
+				writable: false,
+				configurable: false
+			});
+			return wrapper;
+		};
+		const addListener = createPluginMethodWrapper("addListener");
+		const removeListener = createPluginMethodWrapper("removeListener");
+		const addListenerNative = (eventName, callback) => {
+			const call = addListener({ eventName }, callback).then((callbackId) => callbackId);
+			const remove = async () => {
+				const callbackId = await call;
+				await removeListener({
+					eventName,
+					callbackId
+				});
+			};
+			const p = new Promise((resolve) => call.then(() => resolve({ remove })));
+			p.remove = async () => {
+				console.warn(`Using addListener() without 'await' is deprecated.`);
+				await remove();
+			};
+			return p;
+		};
+		const proxy = new Proxy({}, { get(_, prop) {
+			switch (prop) {
+				case "$$typeof": return;
+				case "toJSON": return () => ({});
+				case "addListener": return pluginHeader ? addListenerNative : addListener;
+				case "removeListener": return removeListener;
+				default: return createPluginMethodWrapper(prop);
+			}
+		} });
+		Plugins[pluginName] = proxy;
+		registeredPlugins.set(pluginName, {
+			name: pluginName,
+			proxy,
+			platforms: /* @__PURE__ */ new Set([...Object.keys(jsImplementations), ...pluginHeader ? [platform] : []])
+		});
+		return proxy;
+	};
+	if (!cap.convertFileSrc) cap.convertFileSrc = (filePath) => filePath;
+	cap.getPlatform = getPlatform;
+	cap.handleError = handleError;
+	cap.isNativePlatform = isNativePlatform;
+	cap.isPluginAvailable = isPluginAvailable;
+	cap.registerPlugin = registerPlugin;
+	cap.Exception = CapacitorException;
+	cap.DEBUG = !!cap.DEBUG;
+	cap.isLoggingEnabled = !!cap.isLoggingEnabled;
+	return cap;
+};
+var initCapacitorGlobal = (win) => win.Capacitor = createCapacitor(win);
+var Capacitor = /*#__PURE__*/ initCapacitorGlobal(typeof globalThis !== "undefined" ? globalThis : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : typeof global !== "undefined" ? global : {});
+var registerPlugin = Capacitor.registerPlugin;
+/**
+* Base class web plugins should extend.
+*/
+var WebPlugin = class {
+	constructor() {
+		this.listeners = {};
+		this.retainedEventArguments = {};
+		this.windowListeners = {};
+	}
+	addListener(eventName, listenerFunc) {
+		let firstListener = false;
+		if (!this.listeners[eventName]) {
+			this.listeners[eventName] = [];
+			firstListener = true;
+		}
+		this.listeners[eventName].push(listenerFunc);
+		const windowListener = this.windowListeners[eventName];
+		if (windowListener && !windowListener.registered) this.addWindowListener(windowListener);
+		if (firstListener) this.sendRetainedArgumentsForEvent(eventName);
+		const remove = async () => this.removeListener(eventName, listenerFunc);
+		return Promise.resolve({ remove });
+	}
+	async removeAllListeners() {
+		this.listeners = {};
+		for (const listener in this.windowListeners) this.removeWindowListener(this.windowListeners[listener]);
+		this.windowListeners = {};
+	}
+	notifyListeners(eventName, data, retainUntilConsumed) {
+		const listeners = this.listeners[eventName];
+		if (!listeners) {
+			if (retainUntilConsumed) {
+				let args = this.retainedEventArguments[eventName];
+				if (!args) args = [];
+				args.push(data);
+				this.retainedEventArguments[eventName] = args;
+			}
+			return;
+		}
+		listeners.forEach((listener) => listener(data));
+	}
+	hasListeners(eventName) {
+		var _a;
+		return !!((_a = this.listeners[eventName]) === null || _a === void 0 ? void 0 : _a.length);
+	}
+	registerWindowListener(windowEventName, pluginEventName) {
+		this.windowListeners[pluginEventName] = {
+			registered: false,
+			windowEventName,
+			pluginEventName,
+			handler: (event) => {
+				this.notifyListeners(pluginEventName, event);
+			}
+		};
+	}
+	unimplemented(msg = "not implemented") {
+		return new Capacitor.Exception(msg, ExceptionCode.Unimplemented);
+	}
+	unavailable(msg = "not available") {
+		return new Capacitor.Exception(msg, ExceptionCode.Unavailable);
+	}
+	async removeListener(eventName, listenerFunc) {
+		const listeners = this.listeners[eventName];
+		if (!listeners) return;
+		const index = listeners.indexOf(listenerFunc);
+		if (index !== -1) this.listeners[eventName].splice(index, 1);
+		if (!this.listeners[eventName].length) this.removeWindowListener(this.windowListeners[eventName]);
+	}
+	addWindowListener(handle) {
+		window.addEventListener(handle.windowEventName, handle.handler);
+		handle.registered = true;
+	}
+	removeWindowListener(handle) {
+		if (!handle) return;
+		window.removeEventListener(handle.windowEventName, handle.handler);
+		handle.registered = false;
+	}
+	sendRetainedArgumentsForEvent(eventName) {
+		const args = this.retainedEventArguments[eventName];
+		if (!args) return;
+		delete this.retainedEventArguments[eventName];
+		args.forEach((arg) => {
+			this.notifyListeners(eventName, arg);
+		});
+	}
+};
+/******** END WEB VIEW PLUGIN ********/
+/******** COOKIES PLUGIN ********/
+/**
+* Safely web encode a string value (inspired by js-cookie)
+* @param str The string value to encode
+*/
+var encode = (str) => encodeURIComponent(str).replace(/%(2[346B]|5E|60|7C)/g, decodeURIComponent).replace(/[()]/g, escape);
+/**
+* Safely web decode a string value (inspired by js-cookie)
+* @param str The string value to decode
+*/
+var decode = (str) => str.replace(/(%[\dA-F]{2})+/gi, decodeURIComponent);
+var CapacitorCookiesPluginWeb = class extends WebPlugin {
+	async getCookies() {
+		const cookies = document.cookie;
+		const cookieMap = {};
+		cookies.split(";").forEach((cookie) => {
+			if (cookie.length <= 0) return;
+			let [key, value] = cookie.replace(/=/, "CAP_COOKIE").split("CAP_COOKIE");
+			key = decode(key).trim();
+			value = decode(value).trim();
+			cookieMap[key] = value;
+		});
+		return cookieMap;
+	}
+	async setCookie(options) {
+		try {
+			const encodedKey = encode(options.key);
+			const encodedValue = encode(options.value);
+			const expires = options.expires ? `; expires=${options.expires.replace("expires=", "")}` : "";
+			const path = (options.path || "/").replace("path=", "");
+			const domain = options.url != null && options.url.length > 0 ? `domain=${options.url}` : "";
+			document.cookie = `${encodedKey}=${encodedValue || ""}${expires}; path=${path}; ${domain};`;
+		} catch (error) {
+			return Promise.reject(error);
+		}
+	}
+	async deleteCookie(options) {
+		try {
+			document.cookie = `${options.key}=; Max-Age=0`;
+		} catch (error) {
+			return Promise.reject(error);
+		}
+	}
+	async clearCookies() {
+		try {
+			const cookies = document.cookie.split(";") || [];
+			for (const cookie of cookies) document.cookie = cookie.replace(/^ +/, "").replace(/=.*/, `=;expires=${(/* @__PURE__ */ new Date()).toUTCString()};path=/`);
+		} catch (error) {
+			return Promise.reject(error);
+		}
+	}
+	async clearAllCookies() {
+		try {
+			await this.clearCookies();
+		} catch (error) {
+			return Promise.reject(error);
+		}
+	}
+};
+registerPlugin("CapacitorCookies", { web: () => new CapacitorCookiesPluginWeb() });
+/**
+* Read in a Blob value and return it as a base64 string
+* @param blob The blob value to convert to a base64 string
+*/
+var readBlobAsBase64 = async (blob) => new Promise((resolve, reject) => {
+	const reader = new FileReader();
+	reader.onload = () => {
+		const base64String = reader.result;
+		resolve(base64String.indexOf(",") >= 0 ? base64String.split(",")[1] : base64String);
+	};
+	reader.onerror = (error) => reject(error);
+	reader.readAsDataURL(blob);
+});
+/**
+* Normalize an HttpHeaders map by lowercasing all of the values
+* @param headers The HttpHeaders object to normalize
+*/
+var normalizeHttpHeaders = (headers = {}) => {
+	const originalKeys = Object.keys(headers);
+	return Object.keys(headers).map((k) => k.toLocaleLowerCase()).reduce((acc, key, index) => {
+		acc[key] = headers[originalKeys[index]];
+		return acc;
+	}, {});
+};
+/**
+* Builds a string of url parameters that
+* @param params A map of url parameters
+* @param shouldEncode true if you should encodeURIComponent() the values (true by default)
+*/
+var buildUrlParams = (params, shouldEncode = true) => {
+	if (!params) return null;
+	return Object.entries(params).reduce((accumulator, entry) => {
+		const [key, value] = entry;
+		let encodedValue;
+		let item;
+		if (Array.isArray(value)) {
+			item = "";
+			value.forEach((str) => {
+				encodedValue = shouldEncode ? encodeURIComponent(str) : str;
+				item += `${key}=${encodedValue}&`;
+			});
+			item.slice(0, -1);
+		} else {
+			encodedValue = shouldEncode ? encodeURIComponent(value) : value;
+			item = `${key}=${encodedValue}`;
+		}
+		return `${accumulator}&${item}`;
+	}, "").substr(1);
+};
+/**
+* Build the RequestInit object based on the options passed into the initial request
+* @param options The Http plugin options
+* @param extra Any extra RequestInit values
+*/
+var buildRequestInit = (options, extra = {}) => {
+	const output = Object.assign({
+		method: options.method || "GET",
+		headers: options.headers
+	}, extra);
+	const type = normalizeHttpHeaders(options.headers)["content-type"] || "";
+	if (typeof options.data === "string") output.body = options.data;
+	else if (type.includes("application/x-www-form-urlencoded")) {
+		const params = new URLSearchParams();
+		for (const [key, value] of Object.entries(options.data || {})) params.set(key, value);
+		output.body = params.toString();
+	} else if (type.includes("multipart/form-data") || options.data instanceof FormData) {
+		const form = new FormData();
+		if (options.data instanceof FormData) options.data.forEach((value, key) => {
+			form.append(key, value);
+		});
+		else for (const key of Object.keys(options.data)) form.append(key, options.data[key]);
+		output.body = form;
+		const headers = new Headers(output.headers);
+		headers.delete("content-type");
+		output.headers = headers;
+	} else if (type.includes("application/json") || typeof options.data === "object") output.body = JSON.stringify(options.data);
+	return output;
+};
+var CapacitorHttpPluginWeb = class extends WebPlugin {
+	/**
+	* Perform an Http request given a set of options
+	* @param options Options to build the HTTP request
+	*/
+	async request(options) {
+		const requestInit = buildRequestInit(options, options.webFetchExtra);
+		const urlParams = buildUrlParams(options.params, options.shouldEncodeUrlParams);
+		const url = urlParams ? `${options.url}?${urlParams}` : options.url;
+		const response = await fetch(url, requestInit);
+		const contentType = response.headers.get("content-type") || "";
+		let { responseType = "text" } = response.ok ? options : {};
+		if (contentType.includes("application/json")) responseType = "json";
+		let data;
+		let blob;
+		switch (responseType) {
+			case "arraybuffer":
+			case "blob":
+				blob = await response.blob();
+				data = await readBlobAsBase64(blob);
+				break;
+			case "json":
+				data = await response.json();
+				break;
+			default: data = await response.text();
+		}
+		const headers = {};
+		response.headers.forEach((value, key) => {
+			headers[key] = value;
+		});
+		return {
+			data,
+			headers,
+			status: response.status,
+			url: response.url
+		};
+	}
+	/**
+	* Perform an Http GET request given a set of options
+	* @param options Options to build the HTTP request
+	*/
+	async get(options) {
+		return this.request(Object.assign(Object.assign({}, options), { method: "GET" }));
+	}
+	/**
+	* Perform an Http POST request given a set of options
+	* @param options Options to build the HTTP request
+	*/
+	async post(options) {
+		return this.request(Object.assign(Object.assign({}, options), { method: "POST" }));
+	}
+	/**
+	* Perform an Http PUT request given a set of options
+	* @param options Options to build the HTTP request
+	*/
+	async put(options) {
+		return this.request(Object.assign(Object.assign({}, options), { method: "PUT" }));
+	}
+	/**
+	* Perform an Http PATCH request given a set of options
+	* @param options Options to build the HTTP request
+	*/
+	async patch(options) {
+		return this.request(Object.assign(Object.assign({}, options), { method: "PATCH" }));
+	}
+	/**
+	* Perform an Http DELETE request given a set of options
+	* @param options Options to build the HTTP request
+	*/
+	async delete(options) {
+		return this.request(Object.assign(Object.assign({}, options), { method: "DELETE" }));
+	}
+};
+registerPlugin("CapacitorHttp", { web: () => new CapacitorHttpPluginWeb() });
+/******** END HTTP PLUGIN ********/
+/******** SYSTEM BARS PLUGIN ********/
+/**
+* Available status bar styles.
+*/
+var SystemBarsStyle;
+(function(SystemBarsStyle) {
+	/**
+	* Light system bar content on a dark background.
+	*
+	* @since 8.0.0
+	*/
+	SystemBarsStyle["Dark"] = "DARK";
+	/**
+	* For dark system bar content on a light background.
+	*
+	* @since 8.0.0
+	*/
+	SystemBarsStyle["Light"] = "LIGHT";
+	/**
+	* The style is based on the device appearance or the underlying content.
+	* If the device is using Dark mode, the system bars content will be light.
+	* If the device is using Light mode, the system bars content will be dark.
+	*
+	* @since 8.0.0
+	*/
+	SystemBarsStyle["Default"] = "DEFAULT";
+})(SystemBarsStyle || (SystemBarsStyle = {}));
+/**
+* Available system bar types.
+*/
+var SystemBarType;
+(function(SystemBarType) {
+	/**
+	* The top status bar on both Android and iOS.
+	*
+	* @since 8.0.0
+	*/
+	SystemBarType["StatusBar"] = "StatusBar";
+	/**
+	* The navigation bar (or gesture bar on iOS) on both Android and iOS.
+	*
+	* @since 8.0.0
+	*/
+	SystemBarType["NavigationBar"] = "NavigationBar";
+})(SystemBarType || (SystemBarType = {}));
+var SystemBarsPluginWeb = class extends WebPlugin {
+	async setStyle() {
+		this.unavailable("not available for web");
+	}
+	async setAnimation() {
+		this.unavailable("not available for web");
+	}
+	async show() {
+		this.unavailable("not available for web");
+	}
+	async hide() {
+		this.unavailable("not available for web");
+	}
+};
+registerPlugin("SystemBars", { web: () => new SystemBarsPluginWeb() });
+// node_modules/@capacitor/app/dist/esm/index.js
+var App$1 = registerPlugin("App", { web: () => __vitePreload(() => import("./web-Dy4bwpJX.js").then((m) => new m.AppWeb()), []) });
+// src/services/notificationService.ts
+var DostNative$1 = Capacitor.isNativePlatform() ? registerPlugin("DostNative") : null;
+var BG_ENABLED_KEY = "dost_bg_service_enabled";
+var NotificationService = class {
+	constructor() {
+		this.lastNotifiedCallId = null;
+		this.notifiedMessageIds = /* @__PURE__ */ new Set();
+		this.actionHandlers = [];
+		this.nativeListenerBound = false;
+		this.isNativeAppActive = true;
+		if (Capacitor.isNativePlatform()) App$1.addListener("appStateChange", ({ isActive }) => {
+			this.isNativeAppActive = isActive;
+		}).catch(() => {});
+	}
+	isBackgroundEnabled() {
+		try {
+			const val = localStorage.getItem(BG_ENABLED_KEY);
+			return val === null ? true : val === "true";
+		} catch {
+			return true;
+		}
+	}
+	async setBackgroundEnabled(enabled) {
+		try {
+			localStorage.setItem(BG_ENABLED_KEY, enabled ? "true" : "false");
+		} catch {}
+		if (enabled) await this.startBackgroundService();
+		else await this.stopBackgroundService();
+	}
+	async requestPermissions() {
+		if (DostNative$1) try {
+			return await DostNative$1.requestAllPermissions();
+		} catch {
+			return {
+				notifications: false,
+				microphone: false,
+				camera: false,
+				batteryUnrestricted: true
+			};
+		}
+		let notifGranted = false;
+		if (typeof window !== "undefined" && "Notification" in window) {
+			if (Notification.permission === "granted") notifGranted = true;
+			else if (Notification.permission !== "denied") try {
+				notifGranted = await Notification.requestPermission() === "granted";
+			} catch {}
+		}
+		return {
+			notifications: notifGranted,
+			microphone: true,
+			camera: true,
+			batteryUnrestricted: true
+		};
+	}
+	async getPermissionStatus() {
+		if (DostNative$1) try {
+			return await DostNative$1.getPermissionStatus();
+		} catch {}
+		return {
+			notifications: typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted",
+			microphone: true,
+			camera: true,
+			batteryUnrestricted: true
+		};
+	}
+	async startBackgroundService() {
+		if (!this.isBackgroundEnabled()) return false;
+		if (DostNative$1) try {
+			const res = await DostNative$1.startBackgroundService();
+			return Boolean(res?.started);
+		} catch {
+			return false;
+		}
+		return false;
+	}
+	async stopBackgroundService() {
+		if (DostNative$1) try {
+			await DostNative$1.stopBackgroundService();
+		} catch {}
+	}
+	async requestBatteryUnrestricted() {
+		if (DostNative$1) try {
+			return await DostNative$1.requestIgnoreBatteryOptimizations();
+		} catch {}
+		return this.getPermissionStatus();
+	}
+	bindActionListeners(handler) {
+		this.actionHandlers.push(handler);
+		if (DostNative$1 && !this.nativeListenerBound) {
+			this.nativeListenerBound = true;
+			DostNative$1.addListener("notificationAction", (data) => {
+				if (data?.action) this.actionHandlers.forEach((h) => h(data));
+			}).catch(() => {});
+		}
+		if (DostNative$1) DostNative$1.getPendingAction().then((pending) => {
+			if (pending && "action" in pending && pending.action) handler(pending);
+		}).catch(() => {});
+		return () => {
+			this.actionHandlers = this.actionHandlers.filter((h) => h !== handler);
+		};
+	}
+	async notifyIncomingMessage(params) {
+		if (this.notifiedMessageIds.has(params.messageId)) return;
+		this.notifiedMessageIds.add(params.messageId);
+		if (this.notifiedMessageIds.size > 200) {
+			const first = this.notifiedMessageIds.values().next().value;
+			if (first) this.notifiedMessageIds.delete(first);
+		}
+		const isHidden = typeof document !== "undefined" && document.visibilityState !== "visible" || !this.isNativeAppActive;
+		if (!isHidden && params.isActiveChat) return;
+		if (DostNative$1) {
+			try {
+				await DostNative$1.showMessageNotification({
+					title: params.title,
+					body: params.body,
+					chatId: params.chatId,
+					senderName: params.senderName
+				});
+			} catch {}
+			return;
+		}
+		if (isHidden && typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") try {
+			if ("serviceWorker" in navigator) {
+				const reg = await navigator.serviceWorker.getRegistration();
+				if (reg) {
+					await reg.showNotification(params.title, {
+						body: params.body,
+						icon: "/pwa-192x192.png",
+						badge: "/pwa-192x192.png",
+						tag: `dost_chat_${params.chatId}`,
+						data: { chatId: params.chatId }
+					});
+					return;
+				}
+			}
+			new Notification(params.title, {
+				body: params.body,
+				icon: "/pwa-192x192.png",
+				tag: `dost_chat_${params.chatId}`
+			});
+		} catch {}
+	}
+	async notifyIncomingCall(call) {
+		if (this.lastNotifiedCallId === call.id) return;
+		this.lastNotifiedCallId = call.id;
+		if (DostNative$1) {
+			try {
+				await DostNative$1.showIncomingCallNotification({
+					callId: call.id,
+					callerName: call.callerName || "DOST User",
+					callType: call.type
+				});
+			} catch {}
+			return;
+		}
+		if (typeof document !== "undefined" && document.visibilityState !== "visible" && typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") try {
+			const title = `${call.callerName || "DOST User"} is calling`;
+			const body = call.type === "video" ? "Incoming DOST Video Call" : "Incoming DOST Voice Call";
+			if ("serviceWorker" in navigator) {
+				const reg = await navigator.serviceWorker.getRegistration();
+				if (reg) {
+					await reg.showNotification(title, {
+						body,
+						icon: "/pwa-192x192.png",
+						tag: `dost_call_${call.id}`,
+						requireInteraction: true
+					});
+					return;
+				}
+			}
+			new Notification(title, {
+				body,
+				icon: "/pwa-192x192.png",
+				tag: `dost_call_${call.id}`,
+				requireInteraction: true
+			});
+		} catch {}
+	}
+	async cancelCallNotification() {
+		this.lastNotifiedCallId = null;
+		if (DostNative$1) try {
+			await DostNative$1.cancelCallNotification();
+		} catch {}
+	}
+	async sendTestNotification() {
+		if (DostNative$1) {
+			await DostNative$1.requestAllPermissions();
+			await DostNative$1.showMessageNotification({
+				title: "DOST Alerts Active",
+				body: "Messages aur calls ab aapke phone ki screen par foran aayenge!",
+				chatId: "test",
+				senderName: "DOST"
+			});
+			return;
+		}
+		await this.requestPermissions();
+		if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") new Notification("DOST Alerts Active", {
+			body: "Messages aur calls ke alerts ab active hain!",
+			icon: "/pwa-192x192.png"
+		});
+	}
+};
+var notificationService = new NotificationService();
+// src/services/paymentService.ts
+var PAYMENT_RAILS = {
+	jazzcash: {
+		id: "jazzcash",
+		name: "JazzCash",
+		placeholder: "0300-1234567",
+		badgeClass: "text-rose-700 bg-rose-50 border-rose-200"
+	},
+	easypaisa: {
+		id: "easypaisa",
+		name: "Easypaisa",
+		placeholder: "0345-1234567",
+		badgeClass: "text-emerald-700 bg-emerald-50 border-emerald-200"
+	},
+	sadapay: {
+		id: "sadapay",
+		name: "SadaPay",
+		placeholder: "03XX-1234567",
+		badgeClass: "text-teal-700 bg-teal-50 border-teal-200"
+	},
+	nayapay: {
+		id: "nayapay",
+		name: "NayaPay",
+		placeholder: "03XX-1234567",
+		badgeClass: "text-orange-700 bg-orange-50 border-orange-200"
+	},
+	raast: {
+		id: "raast",
+		name: "Raast / Bank IBAN",
+		placeholder: "PK36MEZN0000000000000001",
+		badgeClass: "text-sky-700 bg-sky-50 border-sky-200"
+	}
+};
+function formatPKR(amount) {
+	return `Rs. ${(Number.isFinite(amount) ? amount : 0).toLocaleString("en-PK")}`;
+}
+function generatePaymentRef() {
+	const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+	return `DP-${Date.now().toString().slice(-5)}-${rand}`;
+}
+var PaymentService = class {
+	constructor() {
+		this.transactions = [];
+		this.listeners = /* @__PURE__ */ new Set();
+		this.unsubOut = null;
+		this.unsubIn = null;
+		this.currentUserId = null;
+	}
+	subscribe(cb) {
+		this.listeners.add(cb);
+		return () => {
+			this.listeners.delete(cb);
+		};
+	}
+	notify() {
+		this.listeners.forEach((cb) => cb());
+	}
+	getTransactions() {
+		return this.transactions;
+	}
+	startListening(userId) {
+		if (this.currentUserId === userId && this.unsubOut) return;
+		this.stopListening();
+		this.currentUserId = userId;
+		let outgoing = [];
+		let incoming = [];
+		const merge = () => {
+			const map = /* @__PURE__ */ new Map();
+			[...outgoing, ...incoming].forEach((tx) => map.set(tx.id, tx));
+			this.transactions = Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+			this.notify();
+		};
+		try {
+			this.unsubOut = onSnapshot(query(collection(db, "payments"), where("senderId", "==", userId)), (snap) => {
+				outgoing = snap.docs.map((d) => d.data());
+				merge();
+			}, () => {});
+			this.unsubIn = onSnapshot(query(collection(db, "payments"), where("receiverId", "==", userId)), (snap) => {
+				incoming = snap.docs.map((d) => d.data());
+				merge();
+			}, () => {});
+		} catch {}
+	}
+	stopListening() {
+		if (this.unsubOut) {
+			this.unsubOut();
+			this.unsubOut = null;
+		}
+		if (this.unsubIn) {
+			this.unsubIn();
+			this.unsubIn = null;
+		}
+		this.currentUserId = null;
+		this.transactions = [];
+		this.notify();
+	}
+	async createLedgerEntry(tx) {
+		try {
+			await setDoc(doc(db, "payments", tx.id), tx);
+		} catch (err) {
+			handleFirestoreError(err, OperationType.CREATE, `payments/${tx.id}`);
+		}
+	}
+	async updateLedgerStatus(paymentId, status, referenceId) {
+		try {
+			const updates = {
+				status,
+				updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+			};
+			if (referenceId) updates.referenceId = referenceId;
+			await updateDoc(doc(db, "payments", paymentId), updates);
+		} catch (err) {
+			handleFirestoreError(err, OperationType.UPDATE, `payments/${paymentId}`);
+		}
+	}
+};
+var paymentService = new PaymentService();
 // src/services/chatService.ts
 var OUTBOX_KEY = (uid) => `dost_offline_outbox_${uid}`;
 var CACHE_KEY = (uid, kind) => `dost_cache_${kind}_${uid}`;
@@ -55581,7 +56412,9 @@ var ChatStore = class {
 	constructor() {
 		this.users = [];
 		this.chats = [];
+		this.publicChannels = [];
 		this.messages = [];
+		this.publicChannelMessages = [];
 		this.outbox = [];
 		this.stories = [];
 		this.blockedUsers = [];
@@ -55653,13 +56486,17 @@ var ChatStore = class {
 			if (prevUid !== user.id) {
 				this.loadLocalCaches(user.id);
 				this.initFirestoreListeners(user.id);
+				paymentService.startListening(user.id);
 				if (typeof navigator !== "undefined" && navigator.onLine && this.outbox.length > 0) this.flushOfflineOutbox();
 			}
 		} else {
 			this.cleanupListeners();
+			paymentService.stopListening();
 			this.users = [];
 			this.chats = [];
+			this.publicChannels = [];
 			this.messages = [];
+			this.publicChannelMessages = [];
 			this.outbox = [];
 			this.stories = [];
 			this.blockedUsers = [];
@@ -55716,11 +56553,11 @@ var ChatStore = class {
 		try {
 			const unsub = onSnapshot(query(collection(db, "messages"), where("participants", "array-contains", userId)), (snapshot) => {
 				const fetchedMessages = [];
-				let hasNewIncoming = false;
+				const newIncomingMessages = [];
 				snapshot.forEach((d) => {
 					const msg = d.data();
 					fetchedMessages.push(msg);
-					if (this.initialMessagesLoaded && !this.messages.some((m) => m.id === msg.id) && msg.senderId !== userId) hasNewIncoming = true;
+					if (this.initialMessagesLoaded && !this.messages.some((m) => m.id === msg.id) && msg.senderId !== userId && !msg.isDeleted) newIncomingMessages.push(msg);
 					if (msg.senderId !== userId && !msg.isDeleted) {
 						const readBy = msg.readBy || [];
 						const deliveredTo = msg.deliveredTo || [];
@@ -55745,11 +56582,31 @@ var ChatStore = class {
 					this.outbox = this.outbox.filter((entry) => !syncedIds.has(entry.message.id));
 					this.saveOutbox();
 				}
-				if (hasNewIncoming && this.currentUser?.notificationSettings?.messageSounds !== false) {
-					if (fetchedMessages.some((m) => {
-						if (m.senderId === userId) return false;
-						return !(this.getChat(m.chatId)?.mutedBy || []).includes(userId) && !this.messages.some((old) => old.id === m.id);
-					})) sounds.playMessageReceived();
+				if (newIncomingMessages.length > 0) {
+					const unmutedIncoming = newIncomingMessages.filter((m) => {
+						const isMuted = (this.getChat(m.chatId)?.mutedBy || []).includes(userId);
+						const isBlocked = this.isUserBlocked(m.senderId);
+						return !isMuted && !isBlocked;
+					});
+					if (unmutedIncoming.length > 0) {
+						if (this.currentUser?.notificationSettings?.messageSounds !== false) sounds.playMessageReceived();
+						if (this.currentUser?.notificationSettings?.inAppAlerts !== false) {
+							const showPreview = this.currentUser?.notificationSettings?.previewMessage !== false;
+							const latestMsg = unmutedIncoming[unmutedIncoming.length - 1];
+							const chat = this.getChat(latestMsg.chatId);
+							const senderLabel = latestMsg.senderName || "DOST User";
+							const title = chat?.type === "group" ? `${senderLabel} · ${chat.name || "Group"}` : senderLabel;
+							const previewText = showPreview ? latestMsg.text || (latestMsg.type === "image" ? "Sent a photo" : latestMsg.type === "video" ? "Sent a video" : latestMsg.type === "audio" ? "Sent a voice message" : latestMsg.type === "document" ? `Document: ${latestMsg.fileName || "File"}` : latestMsg.type === "payment" && latestMsg.payment ? latestMsg.payment.kind === "send" ? `Sent ${formatPKR(latestMsg.payment.amount)}` : `Requested ${formatPKR(latestMsg.payment.amount)}` : "New message") : "New message received";
+							notificationService.notifyIncomingMessage({
+								messageId: latestMsg.id,
+								chatId: latestMsg.chatId,
+								title,
+								body: previewText,
+								senderName: senderLabel,
+								isActiveChat: this.activeChatId === latestMsg.chatId
+							});
+						}
+					}
 				}
 				this.notify();
 			}, (err) => {
@@ -55817,6 +56674,23 @@ var ChatStore = class {
 				this.notify();
 			}, () => {});
 			this.unsubs.push(unsub);
+		} catch {}
+		try {
+			const unsubCh = onSnapshot(query(collection(db, "chats"), where("type", "==", "channel"), where("isPublic", "==", true)), (snapshot) => {
+				const list = [];
+				snapshot.forEach((d) => list.push(d.data()));
+				this.publicChannels = list.sort((a, b) => (b.participants?.length || 0) - (a.participants?.length || 0));
+				this.notify();
+			}, () => {});
+			this.unsubs.push(unsubCh);
+			const unsubPubMsgs = onSnapshot(query(collection(db, "messages"), where("isPublicChannel", "==", true)), (snapshot) => {
+				const list = [];
+				snapshot.forEach((d) => list.push(d.data()));
+				list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+				this.publicChannelMessages = list;
+				this.notify();
+			}, () => {});
+			this.unsubs.push(unsubPubMsgs);
 		} catch {}
 	}
 	cleanupListeners() {
@@ -55996,6 +56870,8 @@ var ChatStore = class {
 				participants: updates.participants,
 				...updates.adminIds ? { adminIds: updates.adminIds } : {},
 				...updates.photoUrl ? { photoUrl: updates.photoUrl } : {},
+				...updates.onlyAdminsCanMessage !== void 0 ? { onlyAdminsCanMessage: updates.onlyAdminsCanMessage } : {},
+				...updates.onlyAdminsCanEdit !== void 0 ? { onlyAdminsCanEdit: updates.onlyAdminsCanEdit } : {},
 				updatedAt: now
 			});
 			await updateDoc(doc(db, "groups", groupId), {
@@ -56009,6 +56885,104 @@ var ChatStore = class {
 		} catch (err) {
 			handleFirestoreError(err, OperationType.UPDATE, `groups/${groupId}`);
 		}
+	}
+	getPublicChannels() {
+		return this.publicChannels;
+	}
+	async createChannel(name, description, isPublic, photoUrl) {
+		if (!this.currentUser) throw new Error("Must be logged in to create a channel");
+		const myUid = this.currentUser.id;
+		const channelId = `channel_${Date.now()}`;
+		const now = (/* @__PURE__ */ new Date()).toISOString();
+		const newChannel = {
+			id: channelId,
+			type: "channel",
+			name: name.trim(),
+			description: description.trim(),
+			photoUrl: photoUrl || "/assets/aistudio/download_7eb2aac4.jpeg",
+			participants: [myUid],
+			adminIds: [myUid],
+			createdBy: myUid,
+			isPublic,
+			onlyAdminsCanMessage: true,
+			onlyAdminsCanEdit: true,
+			lastMessage: `Channel "${name.trim()}" created`,
+			lastMessageTime: now,
+			lastSenderId: myUid,
+			pinnedBy: [],
+			mutedBy: [],
+			archivedBy: [],
+			typingUsers: {},
+			createdAt: now,
+			updatedAt: now
+		};
+		try {
+			await setDoc(doc(db, "chats", channelId), newChannel);
+			await this.sendMessage({
+				chatId: channelId,
+				participants: [myUid],
+				text: `Welcome to ${name.trim()}! Official updates & announcements will appear here.`,
+				type: "text"
+			});
+		} catch (err) {
+			handleFirestoreError(err, OperationType.CREATE, `chats/${channelId}`);
+		}
+		return newChannel;
+	}
+	async joinChannel(channelId) {
+		if (!this.currentUser) return;
+		try {
+			await updateDoc(doc(db, "chats", channelId), {
+				participants: arrayUnion(this.currentUser.id),
+				updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+			});
+		} catch (err) {
+			handleFirestoreError(err, OperationType.UPDATE, `chats/${channelId}`);
+		}
+	}
+	async leaveChannel(channelId) {
+		if (!this.currentUser) return;
+		try {
+			await updateDoc(doc(db, "chats", channelId), {
+				participants: arrayRemove(this.currentUser.id),
+				updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+			});
+		} catch (err) {
+			handleFirestoreError(err, OperationType.UPDATE, `chats/${channelId}`);
+		}
+	}
+	async createBroadcastList(name, recipientIds) {
+		if (!this.currentUser) throw new Error("Must be logged in to create a broadcast list");
+		const myUid = this.currentUser.id;
+		const allMembers = Array.from(/* @__PURE__ */ new Set([myUid, ...recipientIds]));
+		const broadcastId = `broadcast_${Date.now()}`;
+		const now = (/* @__PURE__ */ new Date()).toISOString();
+		const newBroadcast = {
+			id: broadcastId,
+			type: "broadcast",
+			name: name.trim(),
+			description: `Broadcast list · ${recipientIds.length} recipients`,
+			photoUrl: "/assets/aistudio/download_7eb2aac4.jpeg",
+			participants: allMembers,
+			adminIds: [myUid],
+			createdBy: myUid,
+			onlyAdminsCanMessage: true,
+			lastMessage: `Broadcast list ready (${recipientIds.length} recipients)`,
+			lastMessageTime: now,
+			lastSenderId: myUid,
+			pinnedBy: [],
+			mutedBy: [],
+			archivedBy: [],
+			typingUsers: {},
+			createdAt: now,
+			updatedAt: now
+		};
+		try {
+			await setDoc(doc(db, "chats", broadcastId), newBroadcast);
+		} catch (err) {
+			handleFirestoreError(err, OperationType.CREATE, `chats/${broadcastId}`);
+		}
+		return newBroadcast;
 	}
 	async leaveGroup(groupId) {
 		if (!this.currentUser) return;
@@ -56122,10 +57096,14 @@ var ChatStore = class {
 		}).catch(() => {});
 	}
 	getMessages(chatId) {
-		const synced = this.messages.filter((m) => m.chatId === chatId && !this.hiddenMessageIds.has(m.id));
-		const syncedIds = new Set(synced.map((m) => m.id));
-		const pending = this.outbox.map((e) => e.message).filter((m) => m.chatId === chatId && !syncedIds.has(m.id) && !this.hiddenMessageIds.has(m.id));
-		return [...synced, ...pending].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+		const map = /* @__PURE__ */ new Map();
+		for (const m of this.messages) if (m.chatId === chatId && !this.hiddenMessageIds.has(m.id)) map.set(m.id, m);
+		for (const m of this.publicChannelMessages) if (m.chatId === chatId && !this.hiddenMessageIds.has(m.id) && !map.has(m.id)) map.set(m.id, m);
+		for (const e of this.outbox) {
+			const m = e.message;
+			if (m.chatId === chatId && !this.hiddenMessageIds.has(m.id) && !map.has(m.id)) map.set(m.id, m);
+		}
+		return Array.from(map.values()).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 	}
 	async commitOutboxEntry(entry) {
 		const msg = entry.message;
@@ -56193,7 +57171,9 @@ var ChatStore = class {
 	async sendMessage(params) {
 		if (!this.currentUser) throw new Error("User must be logged in");
 		const chat = this.getChat(params.chatId);
-		const participants = params.participants || chat?.participants || [this.currentUser.id];
+		const isBroadcast = chat?.type === "broadcast";
+		const isPublicChannel = Boolean(chat?.type === "channel" && chat?.isPublic);
+		const participants = isBroadcast ? [this.currentUser.id] : params.participants || chat?.participants || [this.currentUser.id];
 		const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 		const now = (/* @__PURE__ */ new Date()).toISOString();
 		const isOnline = typeof navigator === "undefined" ? true : navigator.onLine;
@@ -56201,11 +57181,14 @@ var ChatStore = class {
 			id: msgId,
 			chatId: params.chatId,
 			participants,
+			...isPublicChannel ? { isPublicChannel: true } : {},
 			senderId: this.currentUser.id,
 			senderName: this.currentUser.displayName,
 			senderPhotoUrl: this.currentUser.photoUrl || "",
 			text: params.text || "",
 			type: params.type || "text",
+			...params.poll ? { poll: params.poll } : {},
+			...params.payment ? { payment: params.payment } : {},
 			...params.mediaUrl ? { mediaUrl: params.mediaUrl } : {},
 			...params.fileName ? { fileName: params.fileName } : {},
 			...params.fileSize ? { fileSize: params.fileSize } : {},
@@ -56219,19 +57202,34 @@ var ChatStore = class {
 			...params.forwardedFrom ? { forwardedFrom: params.forwardedFrom } : {},
 			createdAt: now
 		};
-		const preview = params.text || (params.type === "image" ? "📷 Photo" : params.type === "video" ? "🎥 Video" : params.type === "audio" ? "🎤 Voice message" : params.type === "document" ? `📄 ${params.fileName || "Document"}` : "Message");
+		const preview = params.type === "poll" ? `📊 Poll: ${params.poll?.question || "Vote now"}` : params.type === "payment" && params.payment ? params.payment.kind === "send" ? `💸 Payment: ${formatPKR(params.payment.amount)}` : `💳 Payment Request: ${formatPKR(params.payment.amount)}` : params.text || (params.type === "image" ? "📷 Photo" : params.type === "video" ? "🎥 Video" : params.type === "audio" ? "🎤 Voice message" : params.type === "document" ? `📄 ${params.fileName || "Document"}` : "Message");
 		const entry = {
 			message: {
 				...newMessage,
 				status: "pending"
 			},
 			preview,
-			chatTitle: chat?.type === "group" ? chat.name || "Group" : this.currentUser.displayName
+			chatTitle: chat?.type === "group" || chat?.type === "channel" ? chat.name || "DOST" : this.currentUser.displayName
 		};
 		if (this.currentUser.notificationSettings?.messageSounds !== false) sounds.playMessageSent();
 		this.outbox.push(entry);
 		this.saveOutbox();
 		this.notify();
+		if (isBroadcast && !params.skipBroadcastFanout && chat) {
+			const recipientIds = chat.participants.filter((uid) => uid !== this.currentUser.id);
+			for (const recipientId of recipientIds) this.createOrGetPrivateChat(recipientId).then((privateChat) => this.sendMessage({
+				chatId: privateChat.id,
+				participants: privateChat.participants,
+				text: params.text,
+				type: params.type,
+				poll: params.poll,
+				mediaUrl: params.mediaUrl,
+				fileName: params.fileName,
+				fileSize: params.fileSize,
+				duration: params.duration,
+				skipBroadcastFanout: true
+			}));
+		}
 		if (!isOnline) return entry.message;
 		try {
 			await this.commitOutboxEntry(entry);
@@ -56243,11 +57241,124 @@ var ChatStore = class {
 		}
 		return newMessage;
 	}
+	async sendPollMessage(chatId, question, optionTexts, allowMultiple) {
+		const cleanOptions = optionTexts.map((t) => t.trim()).filter(Boolean).slice(0, 6).map((text, idx) => ({
+			id: `opt_${idx}_${Date.now().toString(36)}`,
+			text,
+			voterIds: []
+		}));
+		return this.sendMessage({
+			chatId,
+			text: question.trim(),
+			type: "poll",
+			poll: {
+				question: question.trim(),
+				allowMultiple,
+				options: cleanOptions
+			}
+		});
+	}
+	async voteOnPoll(messageId, optionId) {
+		if (!this.currentUser) return;
+		const myUid = this.currentUser.id;
+		const msg = this.messages.find((m) => m.id === messageId) || this.publicChannelMessages.find((m) => m.id === messageId);
+		if (!msg || !msg.poll || msg.poll.isClosed) return;
+		const updatedOptions = msg.poll.options.map((opt) => {
+			const hasVoted = opt.voterIds.includes(myUid);
+			if (opt.id === optionId) return {
+				...opt,
+				voterIds: hasVoted ? opt.voterIds.filter((id) => id !== myUid) : [...opt.voterIds, myUid]
+			};
+			if (!msg.poll.allowMultiple && hasVoted) return {
+				...opt,
+				voterIds: opt.voterIds.filter((id) => id !== myUid)
+			};
+			return opt;
+		});
+		const updatedPoll = {
+			...msg.poll,
+			options: updatedOptions
+		};
+		try {
+			await updateDoc(doc(db, "messages", messageId), {
+				poll: updatedPoll,
+				updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+			});
+		} catch (err) {
+			handleFirestoreError(err, OperationType.UPDATE, `messages/${messageId}`);
+		}
+	}
+	async sendPaymentMessage(params) {
+		if (!this.currentUser) throw new Error("User must be logged in");
+		const paymentId = `pay_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+		const now = (/* @__PURE__ */ new Date()).toISOString();
+		const refId = params.referenceId?.trim() || generatePaymentRef();
+		const initialStatus = params.kind === "send" ? "sent" : "pending";
+		const paymentData = {
+			paymentId,
+			kind: params.kind,
+			amount: params.amount,
+			currency: "PKR",
+			method: params.method,
+			status: initialStatus,
+			receiverId: params.receiverId,
+			receiverName: params.receiverName,
+			...params.accountNumber ? { accountNumber: params.accountNumber.trim() } : {},
+			...params.accountTitle ? { accountTitle: params.accountTitle.trim() } : {},
+			referenceId: refId,
+			...params.note ? { note: params.note.trim() } : {}
+		};
+		await paymentService.createLedgerEntry({
+			id: paymentId,
+			chatId: params.chatId,
+			senderId: this.currentUser.id,
+			senderName: this.currentUser.displayName,
+			receiverId: params.receiverId,
+			receiverName: params.receiverName,
+			amount: params.amount,
+			currency: "PKR",
+			method: params.method,
+			kind: params.kind,
+			status: initialStatus,
+			...params.accountNumber ? { accountNumber: params.accountNumber.trim() } : {},
+			referenceId: refId,
+			...params.note ? { note: params.note.trim() } : {},
+			createdAt: now,
+			updatedAt: now
+		});
+		const summaryText = params.kind === "send" ? `Sent ${formatPKR(params.amount)}${params.note ? ` · ${params.note.trim()}` : ""}` : `Requested ${formatPKR(params.amount)}${params.note ? ` · ${params.note.trim()}` : ""}`;
+		return this.sendMessage({
+			chatId: params.chatId,
+			text: summaryText,
+			type: "payment",
+			payment: paymentData
+		});
+	}
+	async respondToPaymentMessage(messageId, nextStatus, referenceId) {
+		const msg = this.messages.find((m) => m.id === messageId);
+		if (!msg || !msg.payment) return;
+		const now = (/* @__PURE__ */ new Date()).toISOString();
+		const updatedPayment = {
+			...msg.payment,
+			status: nextStatus,
+			...referenceId?.trim() ? { referenceId: referenceId.trim() } : {}
+		};
+		try {
+			await updateDoc(doc(db, "messages", messageId), {
+				payment: updatedPayment,
+				updatedAt: now
+			});
+			await paymentService.updateLedgerStatus(msg.payment.paymentId, nextStatus, referenceId);
+		} catch (err) {
+			handleFirestoreError(err, OperationType.UPDATE, `messages/${messageId}`);
+		}
+	}
 	async forwardMessage(message, targetChatId) {
 		await this.sendMessage({
 			chatId: targetChatId,
 			text: message.text,
 			type: message.type,
+			poll: message.poll,
 			mediaUrl: message.mediaUrl,
 			fileName: message.fileName,
 			fileSize: message.fileSize,
@@ -56264,10 +57375,12 @@ var ChatStore = class {
 			this.notify();
 			return;
 		}
+		const msg = this.messages.find((m) => m.id === messageId) || this.publicChannelMessages.find((m) => m.id === messageId);
+		const now = (/* @__PURE__ */ new Date()).toISOString();
 		const op = updateDoc(doc(db, "messages", messageId), {
 			text: newText,
 			isEdited: true,
-			updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+			updatedAt: now
 		});
 		if (typeof navigator !== "undefined" && !navigator.onLine) {
 			op.catch(() => {});
@@ -56275,6 +57388,14 @@ var ChatStore = class {
 		}
 		try {
 			await op;
+			if (msg) {
+				const chatMsgs = this.getMessages(msg.chatId);
+				const latest = chatMsgs[chatMsgs.length - 1];
+				if (latest && latest.id === messageId) updateDoc(doc(db, "chats", msg.chatId), {
+					lastMessage: newText,
+					updatedAt: now
+				}).catch(() => {});
+			}
 		} catch (err) {
 			handleFirestoreError(err, OperationType.UPDATE, `messages/${messageId}`);
 		}
@@ -56292,10 +57413,13 @@ var ChatStore = class {
 			this.notify();
 			return;
 		}
+		const msg = this.messages.find((m) => m.id === messageId) || this.publicChannelMessages.find((m) => m.id === messageId);
+		const now = (/* @__PURE__ */ new Date()).toISOString();
 		const op = updateDoc(doc(db, "messages", messageId), {
 			text: "This message was deleted",
+			mediaUrl: "",
 			isDeleted: true,
-			updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+			updatedAt: now
 		});
 		if (typeof navigator !== "undefined" && !navigator.onLine) {
 			op.catch(() => {});
@@ -56303,6 +57427,14 @@ var ChatStore = class {
 		}
 		try {
 			await op;
+			if (msg) {
+				const chatMsgs = this.getMessages(msg.chatId);
+				const latest = chatMsgs[chatMsgs.length - 1];
+				if (latest && latest.id === messageId) updateDoc(doc(db, "chats", msg.chatId), {
+					lastMessage: "This message was deleted",
+					updatedAt: now
+				}).catch(() => {});
+			}
 		} catch (err) {
 			handleFirestoreError(err, OperationType.UPDATE, `messages/${messageId}`);
 		}
@@ -56710,6 +57842,7 @@ var WebRTCService = class {
 		this.ringInterval = null;
 		this.callTimerInterval = null;
 		this.currentSession = null;
+		this.latestIncomingSession = null;
 		this.onStateChangeCallback = null;
 		this.onIncomingCallCallback = null;
 		this.callDocUnsub = null;
@@ -56732,13 +57865,39 @@ var WebRTCService = class {
 				if (incomingDocs.length > 0 && !this.currentSession) {
 					const latest = incomingDocs.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0];
 					if (Date.now() - new Date(latest.createdAt || 0).getTime() < 6e4) {
+						this.latestIncomingSession = latest;
 						sounds.playRingPulse();
+						notificationService.notifyIncomingCall(latest);
 						this.onIncomingCallCallback?.(latest);
 					}
-				} else if (incomingDocs.length === 0) this.onIncomingCallCallback?.(null);
+				} else if (incomingDocs.length === 0) {
+					this.latestIncomingSession = null;
+					notificationService.cancelCallNotification();
+					this.onIncomingCallCallback?.(null);
+				}
 			}, (err) => {
 				console.warn("Incoming calls listener:", err.message);
 			});
+		} catch {}
+	}
+	getLatestIncomingCall(callId) {
+		if (!this.latestIncomingSession) return null;
+		if (callId && this.latestIncomingSession.id !== callId) return null;
+		return this.latestIncomingSession;
+	}
+	async answerCallById(callId) {
+		const cached = this.getLatestIncomingCall(callId);
+		if (cached) {
+			await this.answerCall(cached);
+			return;
+		}
+		if (!callId) return;
+		try {
+			const snap = await getDoc(doc(db, "calls", callId));
+			if (snap.exists()) {
+				const session = snap.data();
+				if (session.status === "calling" || session.status === "ringing") await this.answerCall(session);
+			}
 		} catch {}
 	}
 	stopListeningForIncomingCalls() {
@@ -56746,6 +57905,8 @@ var WebRTCService = class {
 			this.incomingUnsub();
 			this.incomingUnsub = null;
 		}
+		this.latestIncomingSession = null;
+		notificationService.cancelCallNotification();
 	}
 	getCurrentSession() {
 		return this.currentSession;
@@ -56841,6 +58002,8 @@ var WebRTCService = class {
 		return session;
 	}
 	async answerCall(incomingSession) {
+		this.latestIncomingSession = null;
+		notificationService.cancelCallNotification();
 		this.onIncomingCallCallback?.(null);
 		try {
 			if (navigator.mediaDevices?.getUserMedia) this.localStream = await navigator.mediaDevices.getUserMedia({
@@ -56887,6 +58050,8 @@ var WebRTCService = class {
 		});
 	}
 	async rejectCall(callId) {
+		this.latestIncomingSession = null;
+		notificationService.cancelCallNotification();
 		this.onIncomingCallCallback?.(null);
 		sounds.playCallEnded();
 		try {
@@ -56972,6 +58137,8 @@ var WebRTCService = class {
 		}
 	}
 	cleanupCallLocally(finalStatus) {
+		this.latestIncomingSession = null;
+		notificationService.cancelCallNotification();
 		if (this.ringInterval) {
 			clearInterval(this.ringInterval);
 			this.ringInterval = null;
@@ -57015,6 +58182,363 @@ var WebRTCService = class {
 	}
 };
 var webrtcService = new WebRTCService();
+// src/services/securityService.ts
+var DostNative = Capacitor.isNativePlatform() ? registerPlugin("DostNative") : null;
+var STORAGE_KEY = "dost_security_lock_v1";
+var DEFAULT_STATE = {
+	appLockEnabled: false,
+	biometricEnabled: true,
+	pinHash: null,
+	lockedChatIds: [],
+	webauthnCredId: null
+};
+async function hashPin(pin) {
+	const salted = `dost_lock_${pin}_2026`;
+	if (typeof crypto !== "undefined" && crypto.subtle) {
+		const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(salted));
+		return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+	}
+	let hash = 0;
+	for (let i = 0; i < salted.length; i++) {
+		hash = (hash << 5) - hash + salted.charCodeAt(i);
+		hash |= 0;
+	}
+	return `fb_${hash}`;
+}
+function toBase64Url(buf) {
+	const bytes = new Uint8Array(buf);
+	let bin = "";
+	bytes.forEach((b) => bin += String.fromCharCode(b));
+	return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function fromBase64Url(str) {
+	const padded = str.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((str.length + 3) % 4);
+	const bin = atob(padded);
+	const arr = new Uint8Array(bin.length);
+	for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+	return arr;
+}
+var SecurityService = class {
+	constructor() {
+		this.state = { ...DEFAULT_STATE };
+		this.listeners = /* @__PURE__ */ new Set();
+		this.load();
+	}
+	load() {
+		if (typeof window === "undefined") return;
+		try {
+			const raw = window.localStorage.getItem(STORAGE_KEY);
+			if (raw) {
+				const parsed = JSON.parse(raw);
+				this.state = {
+					appLockEnabled: Boolean(parsed.appLockEnabled),
+					biometricEnabled: parsed.biometricEnabled ?? true,
+					pinHash: parsed.pinHash || null,
+					lockedChatIds: Array.isArray(parsed.lockedChatIds) ? parsed.lockedChatIds : [],
+					webauthnCredId: parsed.webauthnCredId || null
+				};
+			}
+		} catch {}
+	}
+	save() {
+		if (typeof window !== "undefined") try {
+			window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+		} catch {}
+		this.listeners.forEach((cb) => cb());
+	}
+	subscribe(listener) {
+		this.listeners.add(listener);
+		return () => {
+			this.listeners.delete(listener);
+		};
+	}
+	isAppLockEnabled() {
+		return this.state.appLockEnabled && (Boolean(this.state.pinHash) || this.state.biometricEnabled);
+	}
+	isBiometricEnabled() {
+		return this.state.biometricEnabled;
+	}
+	hasPin() {
+		return Boolean(this.state.pinHash);
+	}
+	getLockedChatIds() {
+		return this.state.lockedChatIds;
+	}
+	isChatLocked(chatId) {
+		return this.state.lockedChatIds.includes(chatId);
+	}
+	async setPin(pin) {
+		this.state.pinHash = await hashPin(pin);
+		this.save();
+	}
+	async verifyPin(pin) {
+		if (!this.state.pinHash) return false;
+		return await hashPin(pin) === this.state.pinHash;
+	}
+	setAppLockEnabled(enabled) {
+		this.state.appLockEnabled = enabled;
+		this.save();
+	}
+	setBiometricEnabled(enabled) {
+		this.state.biometricEnabled = enabled;
+		this.save();
+	}
+	lockChat(chatId) {
+		if (!this.state.lockedChatIds.includes(chatId)) {
+			this.state.lockedChatIds = [...this.state.lockedChatIds, chatId];
+			this.save();
+		}
+	}
+	unlockChat(chatId) {
+		if (this.state.lockedChatIds.includes(chatId)) {
+			this.state.lockedChatIds = this.state.lockedChatIds.filter((id) => id !== chatId);
+			this.save();
+		}
+	}
+	async checkBiometricSupport() {
+		if (Capacitor.isNativePlatform() && DostNative) try {
+			const res = await DostNative.isBiometricAvailable();
+			return {
+				available: Boolean(res.available),
+				label: res.biometric ? "Fingerprint / Face Unlock" : "Device Screen Lock"
+			};
+		} catch {
+			return {
+				available: false,
+				label: "PIN Lock"
+			};
+		}
+		if (typeof window !== "undefined" && window.PublicKeyCredential && typeof window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === "function") try {
+			const available = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+			return {
+				available,
+				label: available ? "Fingerprint / Face ID (Passkey)" : "PIN Lock"
+			};
+		} catch {}
+		return {
+			available: false,
+			label: "PIN Lock"
+		};
+	}
+	async enrollWebAuthn(userLabel) {
+		if (typeof window === "undefined" || !navigator.credentials?.create) return null;
+		try {
+			const challenge = /* @__PURE__ */ new Uint8Array(32);
+			crypto.getRandomValues(challenge);
+			const userId = /* @__PURE__ */ new Uint8Array(16);
+			crypto.getRandomValues(userId);
+			const cred = await navigator.credentials.create({ publicKey: {
+				challenge,
+				rp: { name: "DOST Messaging App" },
+				user: {
+					id: userId,
+					name: userLabel || "dost-user",
+					displayName: userLabel || "DOST User"
+				},
+				pubKeyCredParams: [{
+					type: "public-key",
+					alg: -7
+				}, {
+					type: "public-key",
+					alg: -257
+				}],
+				authenticatorSelection: {
+					authenticatorAttachment: "platform",
+					userVerification: "required"
+				},
+				timeout: 45e3
+			} });
+			if (cred?.rawId) {
+				const encoded = toBase64Url(cred.rawId);
+				this.state.webauthnCredId = encoded;
+				this.save();
+				return encoded;
+			}
+		} catch {}
+		return null;
+	}
+	async authenticateBiometric(options) {
+		if (Capacitor.isNativePlatform() && DostNative) try {
+			return await DostNative.authenticateBiometric({
+				title: options?.title || "Unlock DOST",
+				subtitle: options?.subtitle || "Use fingerprint, face ID, or device lock"
+			});
+		} catch (err) {
+			return {
+				success: false,
+				error: err?.message || "Biometric unavailable"
+			};
+		}
+		if (typeof window !== "undefined" && navigator.credentials?.get && window.PublicKeyCredential) try {
+			let credId = this.state.webauthnCredId;
+			if (!credId) {
+				credId = await this.enrollWebAuthn(options?.userLabel || "DOST User");
+				if (credId) return { success: true };
+				return {
+					success: false,
+					error: "Platform biometric unavailable; use PIN"
+				};
+			}
+			const challenge = /* @__PURE__ */ new Uint8Array(32);
+			crypto.getRandomValues(challenge);
+			if (await navigator.credentials.get({ publicKey: {
+				challenge,
+				allowCredentials: [{
+					type: "public-key",
+					id: fromBase64Url(credId).buffer
+				}],
+				userVerification: "required",
+				timeout: 45e3
+			} })) return { success: true };
+		} catch (err) {
+			return {
+				success: false,
+				error: err?.message || "Biometric cancelled"
+			};
+		}
+		return {
+			success: false,
+			error: "Biometric unavailable on this browser; use PIN"
+		};
+	}
+};
+var securityService = new SecurityService();
+// src/services/deviceSessionService.ts
+var DEVICE_ID_KEY = "dost_persistent_device_id";
+function getOrCreateDeviceId() {
+	if (typeof window === "undefined") return "dev_ssr";
+	let id = window.localStorage.getItem(DEVICE_ID_KEY);
+	if (!id) {
+		id = `dev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+		window.localStorage.setItem(DEVICE_ID_KEY, id);
+	}
+	return id;
+}
+function detectDeviceMeta() {
+	if (Capacitor.isNativePlatform()) {
+		const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+		const isTablet = /tablet|ipad/i.test(ua) || typeof window !== "undefined" && Math.min(window.innerWidth, window.innerHeight) >= 700;
+		return {
+			deviceName: isTablet ? "Android Tablet (DOST App)" : "Android Phone (DOST App)",
+			platform: isTablet ? "tablet" : "android",
+			browserInfo: "Capacitor Native APK v1.0"
+		};
+	}
+	const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+	const isIPad = /iPad/i.test(ua) || /Macintosh/i.test(ua) && typeof navigator !== "undefined" && navigator.maxTouchPoints > 1;
+	const isMobile = /Android|iPhone|iPod|Mobile/i.test(ua) && !isIPad;
+	const browser = /Edg/i.test(ua) ? "Edge" : /Chrome/i.test(ua) ? "Chrome" : /Firefox/i.test(ua) ? "Firefox" : /Safari/i.test(ua) ? "Safari" : "Web Browser";
+	const os = /Windows/i.test(ua) ? "Windows" : /Mac OS|Macintosh/i.test(ua) ? "macOS" : /Android/i.test(ua) ? "Android" : /iPhone|iPad/i.test(ua) ? "iOS" : /Linux/i.test(ua) ? "Linux" : "Desktop";
+	if (isIPad) return {
+		deviceName: `Tablet (${os})`,
+		platform: "tablet",
+		browserInfo: `${browser} on ${os}`
+	};
+	if (isMobile) return {
+		deviceName: `Mobile Web (${os})`,
+		platform: "mobile_web",
+		browserInfo: `${browser} on ${os}`
+	};
+	return {
+		deviceName: `${os} Desktop (${browser})`,
+		platform: "desktop",
+		browserInfo: `${browser} on ${os}`
+	};
+}
+var DeviceSessionService = class {
+	constructor() {
+		this.deviceId = getOrCreateDeviceId();
+		this.sessions = [];
+		this.listeners = /* @__PURE__ */ new Set();
+		this.unsub = null;
+		this.heartbeatId = null;
+		this.currentUserId = null;
+		this.onRevokedCallback = null;
+	}
+	getCurrentDeviceId() {
+		return this.deviceId;
+	}
+	getCurrentSessionId(userId) {
+		return `${userId}_${this.deviceId}`;
+	}
+	getSessions() {
+		return this.sessions.filter((s) => !s.revoked);
+	}
+	subscribe(listener) {
+		this.listeners.add(listener);
+		return () => {
+			this.listeners.delete(listener);
+		};
+	}
+	notify() {
+		this.listeners.forEach((cb) => cb());
+	}
+	async startSessionTracking(userId, onRevoked) {
+		if (this.currentUserId === userId && this.unsub) return;
+		this.stopSessionTracking();
+		this.currentUserId = userId;
+		this.onRevokedCallback = onRevoked || null;
+		const sessionId = this.getCurrentSessionId(userId);
+		const meta = detectDeviceMeta();
+		const now = (/* @__PURE__ */ new Date()).toISOString();
+		const sessionPayload = {
+			id: sessionId,
+			userId,
+			deviceId: this.deviceId,
+			deviceName: meta.deviceName,
+			platform: meta.platform,
+			browserInfo: meta.browserInfo,
+			lastActive: now,
+			createdAt: now,
+			revoked: false
+		};
+		try {
+			await setDoc(doc(db, "device_sessions", sessionId), sessionPayload, { merge: true });
+		} catch {}
+		try {
+			const q = query(collection(db, "device_sessions"), where("userId", "==", userId));
+			this.unsub = onSnapshot(q, (snap) => {
+				const list = [];
+				let wasRevoked = false;
+				snap.forEach((d) => {
+					const s = d.data();
+					if (s.id === sessionId && s.revoked) wasRevoked = true;
+					list.push(s);
+				});
+				this.sessions = list.sort((a, b) => new Date(b.lastActive).getTime() - new Date(a.lastActive).getTime());
+				this.notify();
+				if (wasRevoked && this.onRevokedCallback) this.onRevokedCallback();
+			}, () => {});
+		} catch {}
+		this.heartbeatId = window.setInterval(() => {
+			if (!navigator.onLine || !this.currentUserId) return;
+			updateDoc(doc(db, "device_sessions", sessionId), { lastActive: (/* @__PURE__ */ new Date()).toISOString() }).catch(() => {});
+		}, 6e4);
+	}
+	stopSessionTracking() {
+		if (this.unsub) {
+			this.unsub();
+			this.unsub = null;
+		}
+		if (this.heartbeatId) {
+			clearInterval(this.heartbeatId);
+			this.heartbeatId = null;
+		}
+		this.currentUserId = null;
+		this.sessions = [];
+		this.notify();
+	}
+	async revokeDeviceSession(sessionId) {
+		try {
+			await updateDoc(doc(db, "device_sessions", sessionId), {
+				revoked: true,
+				lastActive: (/* @__PURE__ */ new Date()).toISOString()
+			});
+			await deleteDoc(doc(db, "device_sessions", sessionId)).catch(() => {});
+		} catch {}
+	}
+};
+var deviceSessionService = new DeviceSessionService();
 // node_modules/lucide-react/dist/esm/shared/src/utils.js
 /**
 * @license lucide-react v0.546.0 - ISC
@@ -57117,6 +58641,19 @@ var Archive = createLucideIcon("archive", [
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
+var ArrowDownLeft = createLucideIcon("arrow-down-left", [["path", {
+	d: "M17 7 7 17",
+	key: "15tmo1"
+}], ["path", {
+	d: "M17 17H7V7",
+	key: "1org7z"
+}]]);
+/**
+* @license lucide-react v0.546.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
 var ArrowDown = createLucideIcon("arrow-down", [["path", {
 	d: "M12 5v14",
 	key: "s699le"
@@ -57156,6 +58693,69 @@ var ArrowRight = createLucideIcon("arrow-right", [["path", {
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
+var ArrowUpRight = createLucideIcon("arrow-up-right", [["path", {
+	d: "M7 7h10v10",
+	key: "1tivn9"
+}], ["path", {
+	d: "M7 17 17 7",
+	key: "1vkiza"
+}]]);
+/**
+* @license lucide-react v0.546.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
+var Banknote = createLucideIcon("banknote", [
+	["rect", {
+		width: "20",
+		height: "12",
+		x: "2",
+		y: "6",
+		rx: "2",
+		key: "9lu3g6"
+	}],
+	["circle", {
+		cx: "12",
+		cy: "12",
+		r: "2",
+		key: "1c9p78"
+	}],
+	["path", {
+		d: "M6 12h.01M18 12h.01",
+		key: "113zkx"
+	}]
+]);
+/**
+* @license lucide-react v0.546.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
+var BatteryCharging = createLucideIcon("battery-charging", [
+	["path", {
+		d: "m11 7-3 5h4l-3 5",
+		key: "b4a64w"
+	}],
+	["path", {
+		d: "M14.856 6H16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.935",
+		key: "lre1cr"
+	}],
+	["path", {
+		d: "M22 14v-4",
+		key: "14q9d5"
+	}],
+	["path", {
+		d: "M5.14 18H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2.936",
+		key: "13q5k0"
+	}]
+]);
+/**
+* @license lucide-react v0.546.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
 var Bell = createLucideIcon("bell", [["path", {
 	d: "M10.268 21a2 2 0 0 0 3.464 0",
 	key: "vwvbt9"
@@ -57178,6 +58778,30 @@ var Camera = createLucideIcon("camera", [["path", {
 	r: "3",
 	key: "1vg3eu"
 }]]);
+/**
+* @license lucide-react v0.546.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
+var ChartColumn = createLucideIcon("chart-column", [
+	["path", {
+		d: "M3 3v16a2 2 0 0 0 2 2h16",
+		key: "c24i48"
+	}],
+	["path", {
+		d: "M18 17V9",
+		key: "2bz60n"
+	}],
+	["path", {
+		d: "M13 17V5",
+		key: "1frdt8"
+	}],
+	["path", {
+		d: "M8 17v-3",
+		key: "17ska0"
+	}]
+]);
 /**
 * @license lucide-react v0.546.0 - ISC
 *
@@ -57333,6 +58957,26 @@ var Database = createLucideIcon("database", [
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
+var Delete = createLucideIcon("delete", [
+	["path", {
+		d: "M10 5a2 2 0 0 0-1.344.519l-6.328 5.74a1 1 0 0 0 0 1.481l6.328 5.741A2 2 0 0 0 10 19h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z",
+		key: "1yo7s0"
+	}],
+	["path", {
+		d: "m12 9 6 6",
+		key: "anjzzh"
+	}],
+	["path", {
+		d: "m18 9-6 6",
+		key: "1fp51s"
+	}]
+]);
+/**
+* @license lucide-react v0.546.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
 var Download = createLucideIcon("download", [
 	["path", {
 		d: "M12 15V3",
@@ -57474,6 +59118,50 @@ var FileText = createLucideIcon("file-text", [
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
+var Fingerprint = createLucideIcon("fingerprint", [
+	["path", {
+		d: "M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4",
+		key: "1nerag"
+	}],
+	["path", {
+		d: "M14 13.12c0 2.38 0 6.38-1 8.88",
+		key: "o46ks0"
+	}],
+	["path", {
+		d: "M17.29 21.02c.12-.6.43-2.3.5-3.02",
+		key: "ptglia"
+	}],
+	["path", {
+		d: "M2 12a10 10 0 0 1 18-6",
+		key: "ydlgp0"
+	}],
+	["path", {
+		d: "M2 16h.01",
+		key: "1gqxmh"
+	}],
+	["path", {
+		d: "M21.8 16c.2-2 .131-5.354 0-6",
+		key: "drycrb"
+	}],
+	["path", {
+		d: "M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2",
+		key: "1tidbn"
+	}],
+	["path", {
+		d: "M8.65 22c.21-.66.45-1.32.57-2",
+		key: "13wd9y"
+	}],
+	["path", {
+		d: "M9 6.8a6 6 0 0 1 9 5.2v2",
+		key: "1fr1j5"
+	}]
+]);
+/**
+* @license lucide-react v0.546.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
 var Forward = createLucideIcon("forward", [["path", {
 	d: "m15 17 5-5-5-5",
 	key: "nf172w"
@@ -57481,6 +59169,28 @@ var Forward = createLucideIcon("forward", [["path", {
 	d: "M4 18v-2a4 4 0 0 1 4-4h12",
 	key: "jmiej9"
 }]]);
+/**
+* @license lucide-react v0.546.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
+var Globe = createLucideIcon("globe", [
+	["circle", {
+		cx: "12",
+		cy: "12",
+		r: "10",
+		key: "1mglay"
+	}],
+	["path", {
+		d: "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20",
+		key: "13o1zl"
+	}],
+	["path", {
+		d: "M2 12h20",
+		key: "9i4pu4"
+	}]
+]);
 /**
 * @license lucide-react v0.546.0 - ISC
 *
@@ -57552,9 +59262,40 @@ var KeyRound = createLucideIcon("key-round", [["path", {
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
+var Laptop = createLucideIcon("laptop", [["path", {
+	d: "M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z",
+	key: "1pdavp"
+}], ["path", {
+	d: "M20.054 15.987H3.946",
+	key: "14rxg9"
+}]]);
+/**
+* @license lucide-react v0.546.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
 var LoaderCircle = createLucideIcon("loader-circle", [["path", {
 	d: "M21 12a9 9 0 1 1-6.219-8.56",
 	key: "13zald"
+}]]);
+/**
+* @license lucide-react v0.546.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
+var LockOpen = createLucideIcon("lock-open", [["rect", {
+	width: "18",
+	height: "11",
+	x: "3",
+	y: "11",
+	rx: "2",
+	ry: "2",
+	key: "1w4ew1"
+}], ["path", {
+	d: "M7 11V7a5 5 0 0 1 9.9-1",
+	key: "1mm8w8"
 }]]);
 /**
 * @license lucide-react v0.546.0 - ISC
@@ -57735,6 +59476,46 @@ var Mic = createLucideIcon("mic", [
 		height: "13",
 		rx: "3",
 		key: "s6n7sd"
+	}]
+]);
+/**
+* @license lucide-react v0.546.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
+var Palette = createLucideIcon("palette", [
+	["path", {
+		d: "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z",
+		key: "e79jfc"
+	}],
+	["circle", {
+		cx: "13.5",
+		cy: "6.5",
+		r: ".5",
+		fill: "currentColor",
+		key: "1okk4w"
+	}],
+	["circle", {
+		cx: "17.5",
+		cy: "10.5",
+		r: ".5",
+		fill: "currentColor",
+		key: "f64h9f"
+	}],
+	["circle", {
+		cx: "6.5",
+		cy: "12.5",
+		r: ".5",
+		fill: "currentColor",
+		key: "qy21gx"
+	}],
+	["circle", {
+		cx: "8.5",
+		cy: "7.5",
+		r: ".5",
+		fill: "currentColor",
+		key: "fotxhn"
 	}]
 ]);
 /**
@@ -58173,6 +59954,27 @@ var Smile = createLucideIcon("smile", [
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
+var Tablet = createLucideIcon("tablet", [["rect", {
+	width: "16",
+	height: "20",
+	x: "4",
+	y: "2",
+	rx: "2",
+	ry: "2",
+	key: "76otgf"
+}], ["line", {
+	x1: "12",
+	x2: "12.01",
+	y1: "18",
+	y2: "18",
+	key: "1dp563"
+}]]);
+/**
+* @license lucide-react v0.546.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
 var Trash2 = createLucideIcon("trash-2", [
 	["path", {
 		d: "M10 11v6",
@@ -58481,51 +60283,128 @@ var import_jsx_runtime = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = require_react_jsx_runtime_production();
 })))();
 var SplashScreen = ({ onDismiss }) => {
+	const [isLeaving, setIsLeaving] = (0, import_react.useState)(false);
 	(0, import_react.useEffect)(() => {
-		const timer = window.setTimeout(() => {
+		const fadeTimer = window.setTimeout(() => {
+			setIsLeaving(true);
+		}, 1750);
+		const dismissTimer = window.setTimeout(() => {
 			onDismiss();
-		}, 1600);
-		return () => clearTimeout(timer);
+		}, 2050);
+		return () => {
+			clearTimeout(fadeTimer);
+			clearTimeout(dismissTimer);
+		};
 	}, [onDismiss]);
+	const handleQuickEnter = () => {
+		if (isLeaving) return;
+		setIsLeaving(true);
+		window.setTimeout(() => {
+			onDismiss();
+		}, 220);
+	};
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-		className: "fixed inset-0 z-50 flex flex-col items-center justify-between bg-gradient-to-b from-[#0FA958] via-[#0B8043] to-[#054C28] text-white p-8 select-none animate-fade-in",
+		onClick: handleQuickEnter,
+		role: "presentation",
+		className: `fixed inset-0 z-50 flex flex-col justify-between overflow-hidden select-none cursor-pointer bg-[#F6FAF7] dark:bg-[#07150E] text-slate-900 dark:text-slate-100 transition-all duration-300 ease-out ${isLeaving ? "opacity-0 scale-[1.02]" : "opacity-100 scale-100"}`,
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "w-full flex justify-between items-center text-xs tracking-wider uppercase text-emerald-200/90 font-medium pt-2",
+				className: "pointer-events-none absolute inset-x-0 top-0 h-[44%] min-h-[270px] overflow-hidden",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "absolute inset-0 bg-gradient-to-br from-[#064E29] via-[#0B8043] to-[#0FA958]",
+					style: { clipPath: "ellipse(95% 86% at 50% 10%)" }
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+					className: "absolute inset-0 w-full h-full opacity-[0.14]",
+					viewBox: "0 0 800 400",
+					preserveAspectRatio: "xMidYMid slice",
+					"aria-hidden": "true",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+							cx: "400",
+							cy: "360",
+							r: "170",
+							fill: "none",
+							stroke: "white",
+							strokeWidth: "1"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+							cx: "400",
+							cy: "360",
+							r: "245",
+							fill: "none",
+							stroke: "white",
+							strokeWidth: "1"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+							cx: "400",
+							cy: "360",
+							r: "325",
+							fill: "none",
+							stroke: "white",
+							strokeWidth: "1",
+							strokeDasharray: "5 7"
+						})
+					]
+				})]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", {
+				className: "relative z-10 w-full max-w-2xl mx-auto flex items-center justify-between px-6 pt-7 text-[11px] font-semibold tracking-[0.14em] uppercase text-emerald-100/90",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 					className: "flex items-center gap-1.5",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Shield, { className: "w-4 h-4 text-emerald-300" }), "End-to-End Encrypted"]
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Version 1.0" })]
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { className: "w-3.5 h-3.5 text-emerald-200" }), "Encrypted"]
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "text-emerald-100/80",
+					children: "Version 1.0"
+				})]
 			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "flex flex-col items-center text-center max-w-sm my-auto",
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", {
+				className: "relative z-10 flex flex-col items-center text-center px-6 my-auto",
 				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "animate-splash-scale relative mb-7",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "w-36 h-36 sm:w-40 sm:h-40 rounded-[34px] bg-white dark:bg-[#0D2116] p-2.5 shadow-[0_24px_55px_-12px_rgba(11,128,67,0.32)] ring-1 ring-emerald-950/10 dark:ring-emerald-400/20",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+								src: "/assets/aistudio/download_7eb2aac4.jpeg",
+								alt: "DOST Messaging App Official Crest",
+								referrerPolicy: "no-referrer",
+								className: "w-full h-full rounded-[26px] object-cover"
+							})
+						})
+					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "relative mb-6",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute -inset-3 bg-emerald-300/25 rounded-3xl blur-xl animate-pulse" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
-							src: "/assets/aistudio/download_7eb2aac4.jpeg",
-							alt: "DOST Messaging App Logo",
-							className: "relative w-32 h-32 rounded-3xl shadow-2xl object-cover border-2 border-white/25"
-						})]
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
-						className: "text-3xl font-extrabold tracking-tight text-white mb-1.5 font-['Outfit']",
-						children: "DOST"
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-						className: "text-xs font-medium text-emerald-100/90 tracking-wide mb-6",
-						children: "DOST MESSAGING APP · Developed by Husnain Butt"
+						className: "animate-splash-rise space-y-2.5 max-w-sm",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
+								className: "text-4xl sm:text-[42px] font-bold tracking-[0.06em] text-slate-900 dark:text-white leading-none font-['Outfit']",
+								children: "DOST"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-xs font-semibold uppercase tracking-[0.22em] text-[#0B8043] dark:text-emerald-400",
+								children: "DOST Messaging App"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-xs text-slate-500 dark:text-slate-400 font-medium tracking-wide pt-0.5",
+								children: "Private Chats · HD Audio & Video Calls · Live Sync"
+							})
+						]
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: "w-36 h-1 bg-white/20 rounded-full overflow-hidden",
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "h-full bg-white rounded-full animate-pulse w-2/3 mx-auto" })
+						className: "animate-splash-rise-late mt-8 w-44",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "h-[3px] w-full rounded-full bg-emerald-950/10 dark:bg-white/10 overflow-hidden",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "h-full w-full rounded-full bg-gradient-to-r from-[#0B8043] to-[#0FA958] animate-splash-bar" })
+						})
 					})
 				]
 			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "text-center text-[11px] text-emerald-200/80 pb-2 tracking-wide",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "from" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-					className: "font-bold text-white text-xs mt-0.5 tracking-wider uppercase",
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("footer", {
+				className: "relative z-10 pb-8 px-6 text-center animate-splash-rise-late",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "text-[10px] font-medium uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500",
+					children: "Developed by"
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "mt-1 text-xs font-bold uppercase tracking-[0.18em] text-[#085C30] dark:text-emerald-300 font-['Outfit']",
 					children: "Husnain Butt"
 				})]
 			})
@@ -58659,17 +60538,248 @@ var NavigationSidebar = ({ currentTab, onSelectTab, currentUser, unreadTotal, un
 		})]
 	})] });
 };
+// src/services/themeService.ts
+var CHAT_THEMES = {
+	"emerald-glass": {
+		id: "emerald-glass",
+		name: "DOST Emerald",
+		subtitle: "Crisp mint-alabaster & gradient bubbles",
+		isDark: false,
+		swatchPrimary: "#0FA958",
+		swatchCanvas: "#EEF5F1",
+		canvasBg: "bg-[#EEF5F1]",
+		patternColor: "#0B8043",
+		patternOpacity: "opacity-[0.045]",
+		headerBg: "bg-white/92 backdrop-blur-md border-b border-emerald-950/10 text-slate-800",
+		headerTitle: "text-slate-900",
+		headerSubtitle: "text-slate-500",
+		headerIcon: "text-slate-600",
+		headerHover: "hover:bg-emerald-50 hover:text-emerald-700",
+		outgoingBubble: "bg-gradient-to-br from-[#0FA958] via-[#0D964E] to-[#087A3F] text-white rounded-2xl rounded-br-sm shadow-[0_6px_18px_-6px_rgba(11,128,67,0.45)]",
+		outgoingMeta: "text-emerald-50/90",
+		outgoingReplyBox: "bg-black/15 text-white",
+		outgoingReplyBar: "bg-emerald-200",
+		outgoingDocBox: "bg-black/15 border-white/20 text-white",
+		outgoingAudioBtn: "bg-white text-emerald-700 shadow-xs",
+		outgoingAudioWave: "bg-emerald-100/80",
+		incomingBubble: "bg-white text-slate-800 border border-emerald-950/6 rounded-2xl rounded-bl-sm shadow-[0_4px_14px_-6px_rgba(15,23,42,0.1)]",
+		incomingMeta: "text-slate-400",
+		incomingReplyBox: "bg-emerald-50/80 text-slate-700",
+		incomingReplyBar: "bg-emerald-600",
+		incomingDocBox: "bg-slate-50 border-slate-200/80 text-slate-800",
+		incomingAudioBtn: "bg-emerald-600 text-white shadow-xs",
+		incomingAudioWave: "bg-slate-300",
+		dividerBadge: "bg-white/85 backdrop-blur-xs text-slate-500 border border-emerald-950/8 shadow-xs",
+		composerBg: "bg-white/95 backdrop-blur-md border-t border-emerald-950/8",
+		composerInput: "bg-[#F1F6F3] focus:bg-white text-slate-800 placeholder-slate-400 border border-emerald-950/5 focus:border-emerald-500",
+		sendButton: "bg-gradient-to-br from-[#0FA958] to-[#0B8043] hover:brightness-105 text-white shadow-md shadow-emerald-600/25",
+		micButton: "bg-emerald-100/90 text-emerald-800 hover:bg-emerald-200/90",
+		scrollDownBtn: "bg-white/95 text-emerald-700 border border-emerald-950/10 shadow-lg hover:bg-emerald-50",
+		searchBarBg: "bg-emerald-50/95 border-b border-emerald-200/80 text-slate-800",
+		replyBannerBg: "bg-emerald-50/95 border-t border-emerald-200/80 text-slate-800"
+	},
+	"midnight-emerald": {
+		id: "midnight-emerald",
+		name: "Midnight Forest",
+		subtitle: "Sleek dark AMOLED emerald canvas",
+		isDark: true,
+		swatchPrimary: "#10B981",
+		swatchCanvas: "#08120E",
+		canvasBg: "bg-[#08120E]",
+		patternColor: "#34D399",
+		patternOpacity: "opacity-[0.06]",
+		headerBg: "bg-[#0D1C15]/92 backdrop-blur-md border-b border-emerald-400/12 text-slate-100",
+		headerTitle: "text-white",
+		headerSubtitle: "text-emerald-200/65",
+		headerIcon: "text-emerald-200/80",
+		headerHover: "hover:bg-emerald-500/15 hover:text-emerald-300",
+		outgoingBubble: "bg-gradient-to-br from-[#0FA958] to-[#086E39] text-white rounded-2xl rounded-br-sm shadow-[0_8px_22px_-6px_rgba(15,169,88,0.38)]",
+		outgoingMeta: "text-emerald-100/85",
+		outgoingReplyBox: "bg-black/25 text-white",
+		outgoingReplyBar: "bg-emerald-300",
+		outgoingDocBox: "bg-black/25 border-white/15 text-white",
+		outgoingAudioBtn: "bg-white text-emerald-800",
+		outgoingAudioWave: "bg-emerald-100/75",
+		incomingBubble: "bg-[#13261D] text-slate-100 border border-emerald-400/12 rounded-2xl rounded-bl-sm shadow-[0_6px_16px_-6px_rgba(0,0,0,0.5)]",
+		incomingMeta: "text-emerald-200/50",
+		incomingReplyBox: "bg-black/25 text-slate-200",
+		incomingReplyBar: "bg-emerald-400",
+		incomingDocBox: "bg-[#0C1913] border-emerald-400/15 text-slate-100",
+		incomingAudioBtn: "bg-emerald-500 text-slate-950",
+		incomingAudioWave: "bg-emerald-400/35",
+		dividerBadge: "bg-[#12241C]/90 backdrop-blur-xs text-emerald-200/75 border border-emerald-400/15 shadow-sm",
+		composerBg: "bg-[#0D1C15]/95 backdrop-blur-md border-t border-emerald-400/12",
+		composerInput: "bg-[#152B21] focus:bg-[#193327] text-slate-100 placeholder-emerald-200/40 border border-emerald-400/10 focus:border-emerald-500",
+		sendButton: "bg-gradient-to-br from-[#10B981] to-[#059669] text-slate-950 font-bold shadow-md shadow-emerald-950/50",
+		micButton: "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30",
+		scrollDownBtn: "bg-[#13261D] text-emerald-300 border border-emerald-400/20 shadow-lg hover:bg-[#193327]",
+		searchBarBg: "bg-[#0E2018] border-b border-emerald-400/15 text-slate-100",
+		replyBannerBg: "bg-[#11241B] border-t border-emerald-400/15 text-slate-100"
+	},
+	"ocean-slate": {
+		id: "ocean-slate",
+		name: "Nordic Ocean",
+		subtitle: "Cool sky-slate & deep azure",
+		isDark: false,
+		swatchPrimary: "#0284C7",
+		swatchCanvas: "#ECF3F8",
+		canvasBg: "bg-[#ECF3F8]",
+		patternColor: "#0284C7",
+		patternOpacity: "opacity-[0.045]",
+		headerBg: "bg-white/92 backdrop-blur-md border-b border-sky-950/10 text-slate-800",
+		headerTitle: "text-slate-900",
+		headerSubtitle: "text-slate-500",
+		headerIcon: "text-slate-600",
+		headerHover: "hover:bg-sky-50 hover:text-sky-700",
+		outgoingBubble: "bg-gradient-to-br from-[#0EA5E9] to-[#0369A1] text-white rounded-2xl rounded-br-sm shadow-[0_6px_18px_-6px_rgba(2,132,199,0.4)]",
+		outgoingMeta: "text-sky-50/90",
+		outgoingReplyBox: "bg-black/15 text-white",
+		outgoingReplyBar: "bg-sky-200",
+		outgoingDocBox: "bg-black/15 border-white/20 text-white",
+		outgoingAudioBtn: "bg-white text-sky-700",
+		outgoingAudioWave: "bg-sky-100/80",
+		incomingBubble: "bg-white text-slate-800 border border-sky-950/6 rounded-2xl rounded-bl-sm shadow-[0_4px_14px_-6px_rgba(15,23,42,0.1)]",
+		incomingMeta: "text-slate-400",
+		incomingReplyBox: "bg-sky-50/85 text-slate-700",
+		incomingReplyBar: "bg-sky-600",
+		incomingDocBox: "bg-slate-50 border-slate-200/80 text-slate-800",
+		incomingAudioBtn: "bg-sky-600 text-white",
+		incomingAudioWave: "bg-slate-300",
+		dividerBadge: "bg-white/85 backdrop-blur-xs text-slate-500 border border-sky-950/8 shadow-xs",
+		composerBg: "bg-white/95 backdrop-blur-md border-t border-sky-950/8",
+		composerInput: "bg-[#F1F5F9] focus:bg-white text-slate-800 placeholder-slate-400 border border-sky-950/5 focus:border-sky-500",
+		sendButton: "bg-gradient-to-br from-[#0EA5E9] to-[#0284C7] text-white shadow-md shadow-sky-600/25",
+		micButton: "bg-sky-100 text-sky-800 hover:bg-sky-200",
+		scrollDownBtn: "bg-white text-sky-700 border border-sky-950/10 shadow-lg hover:bg-sky-50",
+		searchBarBg: "bg-sky-50/95 border-b border-sky-200/80 text-slate-800",
+		replyBannerBg: "bg-sky-50/95 border-t border-sky-200/80 text-slate-800"
+	},
+	"royal-plum": {
+		id: "royal-plum",
+		name: "Velvet Dusk",
+		subtitle: "Soft pearl-lavender & deep violet",
+		isDark: false,
+		swatchPrimary: "#7C3AED",
+		swatchCanvas: "#F3F0F8",
+		canvasBg: "bg-[#F3F0F8]",
+		patternColor: "#6D28D9",
+		patternOpacity: "opacity-[0.04]",
+		headerBg: "bg-white/92 backdrop-blur-md border-b border-purple-950/10 text-slate-800",
+		headerTitle: "text-slate-900",
+		headerSubtitle: "text-slate-500",
+		headerIcon: "text-slate-600",
+		headerHover: "hover:bg-violet-50 hover:text-violet-700",
+		outgoingBubble: "bg-gradient-to-br from-[#8B5CF6] to-[#6D28D9] text-white rounded-2xl rounded-br-sm shadow-[0_6px_18px_-6px_rgba(124,58,237,0.38)]",
+		outgoingMeta: "text-violet-100/90",
+		outgoingReplyBox: "bg-black/15 text-white",
+		outgoingReplyBar: "bg-violet-200",
+		outgoingDocBox: "bg-black/15 border-white/20 text-white",
+		outgoingAudioBtn: "bg-white text-violet-700",
+		outgoingAudioWave: "bg-violet-100/80",
+		incomingBubble: "bg-white text-slate-800 border border-purple-950/6 rounded-2xl rounded-bl-sm shadow-[0_4px_14px_-6px_rgba(15,23,42,0.1)]",
+		incomingMeta: "text-slate-400",
+		incomingReplyBox: "bg-violet-50/85 text-slate-700",
+		incomingReplyBar: "bg-violet-600",
+		incomingDocBox: "bg-slate-50 border-slate-200/80 text-slate-800",
+		incomingAudioBtn: "bg-violet-600 text-white",
+		incomingAudioWave: "bg-slate-300",
+		dividerBadge: "bg-white/85 backdrop-blur-xs text-slate-500 border border-purple-950/8 shadow-xs",
+		composerBg: "bg-white/95 backdrop-blur-md border-t border-purple-950/8",
+		composerInput: "bg-[#F4F2F8] focus:bg-white text-slate-800 placeholder-slate-400 border border-purple-950/5 focus:border-violet-500",
+		sendButton: "bg-gradient-to-br from-[#8B5CF6] to-[#6D28D9] text-white shadow-md shadow-violet-600/25",
+		micButton: "bg-violet-100 text-violet-800 hover:bg-violet-200",
+		scrollDownBtn: "bg-white text-violet-700 border border-purple-950/10 shadow-lg hover:bg-violet-50",
+		searchBarBg: "bg-violet-50/95 border-b border-violet-200/80 text-slate-800",
+		replyBannerBg: "bg-violet-50/95 border-t border-violet-200/80 text-slate-800"
+	},
+	"warm-sand": {
+		id: "warm-sand",
+		name: "Warm Sandstone",
+		subtitle: "Classic sandstone & forest green",
+		isDark: false,
+		swatchPrimary: "#15803D",
+		swatchCanvas: "#EFE9DF",
+		canvasBg: "bg-[#EFE9DF]",
+		patternColor: "#15803D",
+		patternOpacity: "opacity-[0.04]",
+		headerBg: "bg-[#FFFDF9]/94 backdrop-blur-md border-b border-stone-200/80 text-slate-800",
+		headerTitle: "text-slate-900",
+		headerSubtitle: "text-stone-500",
+		headerIcon: "text-stone-600",
+		headerHover: "hover:bg-emerald-50 hover:text-emerald-700",
+		outgoingBubble: "bg-gradient-to-br from-[#16A34A] to-[#15803D] text-white rounded-2xl rounded-br-sm shadow-[0_6px_18px_-6px_rgba(21,128,61,0.38)]",
+		outgoingMeta: "text-emerald-50/90",
+		outgoingReplyBox: "bg-black/15 text-white",
+		outgoingReplyBar: "bg-emerald-200",
+		outgoingDocBox: "bg-black/15 border-white/20 text-white",
+		outgoingAudioBtn: "bg-white text-emerald-700",
+		outgoingAudioWave: "bg-emerald-100/80",
+		incomingBubble: "bg-[#FFFDF9] text-slate-800 border border-stone-200/80 rounded-2xl rounded-bl-sm shadow-[0_4px_14px_-6px_rgba(28,25,23,0.08)]",
+		incomingMeta: "text-stone-400",
+		incomingReplyBox: "bg-stone-100 text-slate-700",
+		incomingReplyBar: "bg-emerald-600",
+		incomingDocBox: "bg-stone-50 border-stone-200 text-slate-800",
+		incomingAudioBtn: "bg-emerald-600 text-white",
+		incomingAudioWave: "bg-stone-300",
+		dividerBadge: "bg-[#FFFDF9]/90 backdrop-blur-xs text-stone-500 border border-stone-200/70 shadow-xs",
+		composerBg: "bg-[#FFFDF9]/95 backdrop-blur-md border-t border-stone-200/80",
+		composerInput: "bg-stone-100 focus:bg-white text-slate-800 placeholder-stone-400 border border-stone-200/60 focus:border-emerald-500",
+		sendButton: "bg-gradient-to-br from-[#16A34A] to-[#15803D] text-white shadow-md shadow-emerald-700/25",
+		micButton: "bg-emerald-100 text-emerald-800 hover:bg-emerald-200",
+		scrollDownBtn: "bg-[#FFFDF9] text-emerald-700 border border-stone-200 shadow-lg hover:bg-emerald-50",
+		searchBarBg: "bg-emerald-50/95 border-b border-emerald-200/80 text-slate-800",
+		replyBannerBg: "bg-emerald-50/95 border-t border-emerald-200/80 text-slate-800"
+	}
+};
+var THEME_STORAGE_KEY = "dost_chat_theme_id";
+var ThemeService = class {
+	constructor() {
+		this.currentThemeId = "emerald-glass";
+		this.listeners = /* @__PURE__ */ new Set();
+		if (typeof window !== "undefined") {
+			const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
+			if (saved && CHAT_THEMES[saved]) this.currentThemeId = saved;
+		}
+	}
+	getThemeId() {
+		return this.currentThemeId;
+	}
+	getTheme() {
+		return CHAT_THEMES[this.currentThemeId];
+	}
+	setTheme(id) {
+		if (!CHAT_THEMES[id] || this.currentThemeId === id) return;
+		this.currentThemeId = id;
+		if (typeof window !== "undefined") window.localStorage.setItem(THEME_STORAGE_KEY, id);
+		this.listeners.forEach((cb) => cb());
+	}
+	subscribe(listener) {
+		this.listeners.add(listener);
+		return () => {
+			this.listeners.delete(listener);
+		};
+	}
+};
+var themeService = new ThemeService();
 // src/components/ChatList.tsx
-var ChatList = ({ chats, activeChatId, onSelectChat, onSelectUserToChat, currentUser, onNewChat, onNewGroup }) => {
+var ChatList = ({ chats, activeChatId, onSelectChat, onSelectUserToChat, currentUser, onNewChat, onNewGroup, onOpenChannelsBroadcast }) => {
 	const [searchQuery, setSearchQuery] = (0, import_react.useState)("");
 	const [filter, setFilter] = (0, import_react.useState)("all");
 	const [menuChatId, setMenuChatId] = (0, import_react.useState)(null);
 	const [confirmDeleteId, setConfirmDeleteId] = (0, import_react.useState)(null);
 	const [registeredUsers, setRegisteredUsers] = (0, import_react.useState)(chatStore.getUsers());
+	const [chatTheme, setChatTheme] = (0, import_react.useState)(themeService.getTheme());
+	const [lockedIds, setLockedIds] = (0, import_react.useState)(securityService.getLockedChatIds());
 	(0, import_react.useEffect)(() => {
 		const syncUsers = () => setRegisteredUsers(chatStore.getUsers());
 		syncUsers();
 		return chatStore.subscribe(syncUsers);
+	}, []);
+	(0, import_react.useEffect)(() => {
+		return themeService.subscribe(() => setChatTheme(themeService.getTheme()));
+	}, []);
+	(0, import_react.useEffect)(() => {
+		return securityService.subscribe(() => setLockedIds(securityService.getLockedChatIds()));
 	}, []);
 	const archivedChats = chatStore.getChats(true);
 	const sourceChats = filter === "archived" ? archivedChats : chats;
@@ -58679,18 +60789,18 @@ var ChatList = ({ chats, activeChatId, onSelectChat, onSelectUserToChat, current
 		return partnerId ? chatStore.getUser(partnerId) : void 0;
 	};
 	const getChatTitle = (chat) => {
-		if (chat.type === "group") return chat.name || "Group Chat";
+		if (chat.type === "group" || chat.type === "channel" || chat.type === "broadcast") return chat.name || "DOST Chat";
 		const partner = getChatPartner(chat);
 		return partner ? partner.displayName : "DOST User";
 	};
 	const getChatAvatar = (chat) => {
-		if (chat.type === "group") return chat.photoUrl || "/assets/aistudio/download_7eb2aac4.jpeg";
+		if (chat.type === "group" || chat.type === "channel" || chat.type === "broadcast") return chat.photoUrl || "/assets/aistudio/download_7eb2aac4.jpeg";
 		const partner = getChatPartner(chat);
 		if (partner?.privacySettings?.profilePhotoVisibility === "nobody") return `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(partner.displayName)}`;
 		return partner?.photoUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${partner?.id || "dost"}`;
 	};
 	const isPartnerOnline = (chat) => {
-		if (chat.type === "group") return false;
+		if (chat.type !== "private") return false;
 		const partner = getChatPartner(chat);
 		if (!partner) return false;
 		if (partner.privacySettings?.lastSeenVisibility === "nobody") return false;
@@ -58714,9 +60824,14 @@ var ChatList = ({ chats, activeChatId, onSelectChat, onSelectUserToChat, current
 	};
 	const trimmedQuery = searchQuery.trim().toLowerCase();
 	const filteredChats = sourceChats.filter((chat) => {
+		const isLocked = lockedIds.includes(chat.id);
+		if (filter === "locked") {
+			if (!isLocked) return false;
+		} else if (isLocked && !trimmedQuery) return false;
 		const unreadCount = chatStore.getUnreadCountForChat(chat.id);
 		if (filter === "unread" && unreadCount === 0) return false;
 		if (filter === "groups" && chat.type !== "group") return false;
+		if (filter === "channels" && chat.type !== "channel" && chat.type !== "broadcast") return false;
 		if (!trimmedQuery) return true;
 		const title = getChatTitle(chat).toLowerCase();
 		const lastMsg = (chat.lastMessage || "").toLowerCase();
@@ -58730,36 +60845,45 @@ var ChatList = ({ chats, activeChatId, onSelectChat, onSelectUserToChat, current
 		return (u.displayName || "").toLowerCase().includes(trimmedQuery) || (u.email || "").toLowerCase().includes(trimmedQuery) || (u.phoneNumber || "").toLowerCase().includes(trimmedQuery);
 	}) : [];
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-		className: "flex flex-col h-full bg-white border-r border-slate-200 w-full md:w-80 lg:w-96 shrink-0 select-none relative",
+		className: `flex flex-col h-full border-r w-full md:w-80 lg:w-96 shrink-0 select-none relative transition-colors ${chatTheme.isDark ? "bg-[#0B1812] border-emerald-400/12 text-slate-100" : "bg-white border-slate-200 text-slate-800"}`,
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "p-4 border-b border-slate-100 flex items-center justify-between",
+				className: `p-4 border-b flex items-center justify-between ${chatTheme.isDark ? "border-emerald-400/10" : "border-slate-100"}`,
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h1", {
-					className: "text-xl font-bold text-slate-800 font-['Outfit'] flex items-center gap-2",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Chats" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-						className: "text-xs bg-emerald-100 text-emerald-800 font-medium px-2 py-0.5 rounded-full",
-						children: sourceChats.length
+					className: `text-xl font-bold font-['Outfit'] flex items-center gap-2 ${chatTheme.isDark ? "text-white" : "text-slate-800"}`,
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Chats" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+						className: "text-xs font-semibold text-emerald-600",
+						children: ["· ", sourceChats.length]
 					})]
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-					className: "text-[11px] text-slate-400",
+					className: `text-[11px] ${chatTheme.isDark ? "text-emerald-200/50" : "text-slate-400"}`,
 					children: "DOST Messaging App · Husnain Butt"
 				})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "flex items-center gap-1",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						onClick: onNewGroup,
-						className: "p-2 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition-colors cursor-pointer",
-						title: "Create New Group",
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Users, { className: "w-5 h-5" })
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						onClick: onNewChat,
-						className: "p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-sm transition-all cursor-pointer",
-						title: "Start New Direct Chat",
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquarePlus, { className: "w-5 h-5" })
-					})]
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							onClick: onOpenChannelsBroadcast,
+							className: `p-2 rounded-xl transition-colors cursor-pointer ${chatTheme.isDark ? "text-emerald-200/80 hover:text-emerald-300 hover:bg-emerald-500/15" : "text-slate-600 hover:text-emerald-700 hover:bg-emerald-50"}`,
+							title: "Channels & Broadcast Lists",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Megaphone, { className: "w-5 h-5" })
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							onClick: onNewGroup,
+							className: `p-2 rounded-xl transition-colors cursor-pointer ${chatTheme.isDark ? "text-emerald-200/80 hover:text-emerald-300 hover:bg-emerald-500/15" : "text-slate-600 hover:text-emerald-700 hover:bg-emerald-50"}`,
+							title: "Create New Group",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Users, { className: "w-5 h-5" })
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							onClick: onNewChat,
+							className: "p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-sm transition-all cursor-pointer",
+							title: "Start New Direct Chat",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MessageSquarePlus, { className: "w-5 h-5" })
+						})
+					]
 				})]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "p-3 border-b border-slate-100",
+				className: `p-3 border-b ${chatTheme.isDark ? "border-emerald-400/10" : "border-slate-100"}`,
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "relative",
 					children: [
@@ -58769,7 +60893,7 @@ var ChatList = ({ chats, activeChatId, onSelectChat, onSelectUserToChat, current
 							value: searchQuery,
 							onChange: (e) => setSearchQuery(e.target.value),
 							placeholder: "Search chats or registered user name...",
-							className: "w-full pl-9 pr-8 py-2 bg-slate-100 focus:bg-white rounded-xl text-xs text-slate-800 placeholder-slate-400 border border-transparent focus:border-emerald-500 focus:outline-none transition-all"
+							className: `w-full pl-9 pr-8 py-2 rounded-xl text-xs placeholder-slate-400 border border-transparent focus:border-emerald-500 focus:outline-none transition-all ${chatTheme.isDark ? "bg-[#12261D] focus:bg-[#173025] text-slate-100" : "bg-slate-100 focus:bg-white text-slate-800"}`
 						}),
 						searchQuery && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							type: "button",
@@ -58795,18 +60919,26 @@ var ChatList = ({ chats, activeChatId, onSelectChat, onSelectUserToChat, current
 							label: "Groups"
 						},
 						{
+							id: "channels",
+							label: "Channels"
+						},
+						...lockedIds.length > 0 ? [{
+							id: "locked",
+							label: `Locked (${lockedIds.length})`
+						}] : [],
+						{
 							id: "archived",
 							label: `Archived (${archivedChats.length})`
 						}
 					].map((tab) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 						onClick: () => setFilter(tab.id),
-						className: `px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${filter === tab.id ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100"}`,
+						className: `px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${filter === tab.id ? "bg-emerald-600 text-white" : chatTheme.isDark ? "text-emerald-100/70 hover:bg-emerald-500/15" : "text-slate-600 hover:bg-slate-100"}`,
 						children: tab.label
 					}, tab.id))
 				})]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "flex-1 overflow-y-auto divide-y divide-slate-50 pb-16 md:pb-0",
+				className: `flex-1 overflow-y-auto pb-16 md:pb-0 p-1.5 space-y-0.5 ${chatTheme.isDark ? "divide-emerald-400/5" : "divide-slate-50"}`,
 				children: filteredChats.length === 0 && matchedRegisteredUsers.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "p-8 text-center text-slate-400 flex flex-col items-center justify-center h-48",
 					children: [
@@ -58833,7 +60965,7 @@ var ChatList = ({ chats, activeChatId, onSelectChat, onSelectUserToChat, current
 					const unreadCount = chatStore.getUnreadCountForChat(chat.id);
 					return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						onClick: () => onSelectChat(chat),
-						className: `relative flex items-center gap-3 p-3.5 transition-all cursor-pointer group ${isActive ? "bg-emerald-50/70 border-l-4 border-emerald-600" : "hover:bg-slate-50"}`,
+						className: `relative flex items-center gap-3 p-3 rounded-2xl transition-all cursor-pointer group ${isActive ? chatTheme.isDark ? "bg-emerald-500/15 ring-1 ring-emerald-400/25" : "bg-emerald-50/90 ring-1 ring-emerald-500/20" : chatTheme.isDark ? "hover:bg-emerald-500/8" : "hover:bg-slate-50"}`,
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "relative shrink-0",
@@ -58841,7 +60973,7 @@ var ChatList = ({ chats, activeChatId, onSelectChat, onSelectUserToChat, current
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
 										src: avatar,
 										alt: title,
-										className: "w-12 h-12 rounded-full object-cover border border-slate-200"
+										className: "w-12 h-12 rounded-full object-cover border border-slate-200/70"
 									}),
 									isOnline && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 										className: "absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white shadow-xs",
@@ -58850,6 +60982,19 @@ var ChatList = ({ chats, activeChatId, onSelectChat, onSelectUserToChat, current
 									chat.type === "group" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 										className: "absolute -bottom-1 -left-1 bg-emerald-800 text-white text-[9px] px-1 py-0.2 rounded font-semibold",
 										children: "GRP"
+									}),
+									chat.type === "channel" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "absolute -bottom-1 -left-1 bg-sky-700 text-white text-[9px] px-1 py-0.2 rounded font-semibold",
+										children: "CH"
+									}),
+									chat.type === "broadcast" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "absolute -bottom-1 -left-1 bg-amber-600 text-white text-[9px] px-1 py-0.2 rounded font-semibold",
+										children: "BC"
+									}),
+									lockedIds.includes(chat.id) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "absolute -top-1 -right-1 w-5 h-5 bg-slate-900 text-emerald-300 rounded-full flex items-center justify-center border border-white",
+										title: "Locked Chat",
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { className: "w-2.5 h-2.5" })
 									})
 								]
 							}),
@@ -58858,7 +61003,7 @@ var ChatList = ({ chats, activeChatId, onSelectChat, onSelectUserToChat, current
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 									className: "flex items-center justify-between mb-1",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: `text-sm font-semibold truncate ${isActive ? "text-emerald-950" : "text-slate-800"}`,
+										className: `text-sm font-semibold truncate ${chatTheme.isDark ? "text-white" : isActive ? "text-emerald-950" : "text-slate-800"}`,
 										children: title
 									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 										className: "text-[11px] text-slate-400 font-mono shrink-0 ml-2",
@@ -58917,6 +61062,15 @@ var ChatList = ({ chats, activeChatId, onSelectChat, onSelectUserToChat, current
 										},
 										className: "w-full text-left px-3 py-1.5 hover:bg-slate-50 rounded-xl flex items-center gap-2 cursor-pointer",
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Archive, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: isArchived ? "Unarchive" : "Archive Chat" })]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										onClick: () => {
+											if (lockedIds.includes(chat.id)) securityService.unlockChat(chat.id);
+											else securityService.lockChat(chat.id);
+											setMenuChatId(null);
+										},
+										className: "w-full text-left px-3 py-1.5 hover:bg-slate-50 rounded-xl flex items-center gap-2 cursor-pointer",
+										children: lockedIds.includes(chat.id) ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(LockOpen, { className: "w-3.5 h-3.5 text-emerald-600" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Unlock Chat" })] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { className: "w-3.5 h-3.5 text-emerald-600" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Lock Chat" })] })
 									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "my-1 border-t border-slate-100" }),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
@@ -59342,6 +61496,320 @@ var ContactInfoModal = ({ isOpen, onClose, partner, chat, currentUser, messages,
 		})
 	});
 };
+// src/components/PaymentModal.tsx
+var PRESET_AMOUNTS = [
+	500,
+	1e3,
+	2500,
+	5e3
+];
+var PaymentModal = ({ isOpen, onClose, chat, currentUser, defaultPartner }) => {
+	const [kind, setKind] = (0, import_react.useState)("send");
+	const [selectedReceiverId, setSelectedReceiverId] = (0, import_react.useState)(defaultPartner?.id || "");
+	const [amountInput, setAmountInput] = (0, import_react.useState)("1000");
+	const [method, setMethod] = (0, import_react.useState)("jazzcash");
+	const [accountNumber, setAccountNumber] = (0, import_react.useState)("");
+	const [accountTitle, setAccountTitle] = (0, import_react.useState)("");
+	const [referenceId, setReferenceId] = (0, import_react.useState)("");
+	const [note, setNote] = (0, import_react.useState)("");
+	const [pinInput, setPinInput] = (0, import_react.useState)("");
+	const [copiedAccount, setCopiedAccount] = (0, import_react.useState)(false);
+	const [errorMsg, setErrorMsg] = (0, import_react.useState)("");
+	const [isSubmitting, setIsSubmitting] = (0, import_react.useState)(false);
+	const hasPin = securityService.hasPin();
+	const groupCandidates = chat.participants.filter((uid) => uid !== currentUser.id).map((uid) => chatStore.getUser(uid)).filter((u) => Boolean(u));
+	const targetUser = defaultPartner || groupCandidates.find((u) => u.id === selectedReceiverId) || groupCandidates[0] || null;
+	(0, import_react.useEffect)(() => {
+		if (!isOpen) return;
+		setErrorMsg("");
+		setPinInput("");
+		setReferenceId("");
+		setNote("");
+		if (defaultPartner) setSelectedReceiverId(defaultPartner.id);
+		else if (groupCandidates.length > 0 && !selectedReceiverId) setSelectedReceiverId(groupCandidates[0].id);
+	}, [isOpen, defaultPartner?.id]);
+	(0, import_react.useEffect)(() => {
+		if (!isOpen) return;
+		const sourceAccount = kind === "send" ? targetUser?.paymentAccount : currentUser.paymentAccount;
+		if (sourceAccount) {
+			setMethod(sourceAccount.method);
+			setAccountNumber(sourceAccount.accountNumber);
+			setAccountTitle(sourceAccount.accountTitle);
+		} else {
+			setAccountNumber(kind === "send" ? targetUser?.phoneNumber || "" : currentUser.phoneNumber || "");
+			setAccountTitle(kind === "send" ? targetUser?.displayName || "" : currentUser.displayName || "");
+		}
+	}, [
+		isOpen,
+		kind,
+		targetUser?.id,
+		currentUser.id
+	]);
+	if (!isOpen) return null;
+	const numericAmount = Number(amountInput.replace(/[^\d.]/g, ""));
+	const handleSubmit = async (e) => {
+		e.preventDefault();
+		setErrorMsg("");
+		if (!targetUser) {
+			setErrorMsg("Please select a recipient in this chat.");
+			return;
+		}
+		if (!Number.isFinite(numericAmount) || numericAmount <= 0 || numericAmount > 1e7) {
+			setErrorMsg("Enter a valid amount between Rs. 1 and Rs. 10,000,000.");
+			return;
+		}
+		if (kind === "send" && hasPin) {
+			if (pinInput.length !== 4) {
+				setErrorMsg("Enter your 4-digit security PIN to authorize payment.");
+				return;
+			}
+			if (!await securityService.verifyPin(pinInput)) {
+				setErrorMsg("Incorrect 4-digit security PIN.");
+				return;
+			}
+		}
+		setIsSubmitting(true);
+		try {
+			if (kind === "request" && accountNumber.trim() && !currentUser.paymentAccount) await chatStore.updateProfile({ paymentAccount: {
+				method,
+				accountNumber: accountNumber.trim(),
+				accountTitle: accountTitle.trim() || currentUser.displayName,
+				updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+			} });
+			await chatStore.sendPaymentMessage({
+				chatId: chat.id,
+				receiverId: targetUser.id,
+				receiverName: targetUser.displayName,
+				kind,
+				amount: Math.round(numericAmount),
+				method,
+				accountNumber: accountNumber.trim(),
+				accountTitle: accountTitle.trim() || (kind === "send" ? targetUser.displayName : currentUser.displayName),
+				referenceId: referenceId.trim() || void 0,
+				note: note.trim() || void 0
+			});
+			onClose();
+		} catch (err) {
+			setErrorMsg(err?.message || "Could not process payment message.");
+		} finally {
+			setIsSubmitting(false);
+		}
+	};
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		onClick: onClose,
+		className: "fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 select-none",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
+			onClick: (e) => e.stopPropagation(),
+			onSubmit: handleSubmit,
+			className: "w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]",
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "bg-gradient-to-r from-[#064E29] via-[#0B8043] to-[#0FA958] px-5 py-4 text-white flex items-center justify-between shrink-0",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-center gap-3",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Banknote, { className: "w-5 h-5 text-white" })
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+							className: "text-base font-bold font-['Outfit']",
+							children: "DOST Pay"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "text-[11px] text-emerald-100",
+							children: "Local transfers & payment requests in chat"
+						})] })]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						onClick: onClose,
+						className: "min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl hover:bg-white/15 cursor-pointer",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { className: "w-5 h-5" })
+					})]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "flex-1 overflow-y-auto p-5 space-y-4",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-2xl",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								type: "button",
+								onClick: () => setKind("send"),
+								className: `min-h-[44px] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${kind === "send" ? "bg-emerald-600 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"}`,
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowUpRight, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Send Money" })]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								type: "button",
+								onClick: () => setKind("request"),
+								className: `min-h-[44px] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${kind === "request" ? "bg-emerald-600 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"}`,
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowDownLeft, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Request Money" })]
+							})]
+						}),
+						chat.type !== "private" && groupCandidates.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+							className: "block text-xs font-semibold text-slate-700 mb-1",
+							children: kind === "send" ? "Pay Member" : "Request From Member"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", {
+							value: selectedReceiverId,
+							onChange: (e) => setSelectedReceiverId(e.target.value),
+							className: "w-full min-h-[44px] px-3 py-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500",
+							children: groupCandidates.map((u) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
+								value: u.id,
+								children: [
+									u.displayName,
+									" (",
+									u.email,
+									")"
+								]
+							}, u.id))
+						})] }) : targetUser && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex items-center gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-200/80",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+								src: targetUser.photoUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${targetUser.id}`,
+								alt: targetUser.displayName,
+								className: "w-10 h-10 rounded-full object-cover border border-emerald-200"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "min-w-0 flex-1",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+									className: "text-xs font-bold text-slate-800 truncate",
+									children: [kind === "send" ? "Sending to " : "Requesting from ", targetUser.displayName]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-[11px] text-slate-500 truncate",
+									children: targetUser.paymentAccount ? `${PAYMENT_RAILS[targetUser.paymentAccount.method].name} · ${targetUser.paymentAccount.accountNumber}` : "No linked wallet saved yet — enter number below"
+								})]
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+								className: "block text-xs font-semibold text-slate-700 mb-1",
+								children: "Amount (PKR)"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "relative",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-emerald-700",
+									children: "Rs."
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "number",
+									inputMode: "numeric",
+									min: 1,
+									max: 1e7,
+									value: amountInput,
+									onChange: (e) => setAmountInput(e.target.value),
+									className: "w-full pl-11 pr-4 py-3 text-xl font-extrabold font-mono tabular-nums text-slate-900 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:bg-white focus:border-emerald-500",
+									required: true
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "grid grid-cols-4 gap-1.5 mt-2",
+								children: PRESET_AMOUNTS.map((amt) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: () => setAmountInput(String(amt)),
+									className: `min-h-[38px] rounded-xl text-xs font-bold font-mono tabular-nums border transition-colors cursor-pointer ${numericAmount === amt ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`,
+									children: amt.toLocaleString()
+								}, amt))
+							})
+						] }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+							className: "block text-xs font-semibold text-slate-700 mb-1.5",
+							children: "Payment Method (Local Rail)"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "grid grid-cols-2 sm:grid-cols-3 gap-1.5",
+							children: Object.keys(PAYMENT_RAILS).map((id) => {
+								const rail = PAYMENT_RAILS[id];
+								return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: () => setMethod(id),
+									className: `min-h-[42px] px-2.5 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer truncate ${method === id ? "border-emerald-500 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-500/30" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`,
+									children: rail.name
+								}, id);
+							})
+						})] }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "space-y-2.5",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center justify-between mb-1",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+									className: "text-xs font-semibold text-slate-700",
+									children: kind === "send" ? "Recipient Wallet / IBAN" : "Your Receiving Wallet / IBAN"
+								}), accountNumber && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									onClick: () => {
+										navigator.clipboard?.writeText(accountNumber);
+										setCopiedAccount(true);
+										setTimeout(() => setCopiedAccount(false), 1500);
+									},
+									className: "text-[11px] font-semibold text-emerald-700 inline-flex items-center gap-1 cursor-pointer",
+									children: [copiedAccount ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { className: "w-3 h-3" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Copy, { className: "w-3 h-3" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: copiedAccount ? "Copied" : "Copy" })]
+								})]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+								type: "text",
+								value: accountNumber,
+								onChange: (e) => setAccountNumber(e.target.value),
+								placeholder: PAYMENT_RAILS[method].placeholder,
+								className: "w-full px-3 py-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:bg-white focus:border-emerald-500"
+							})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "grid grid-cols-2 gap-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+									className: "block text-[11px] font-semibold text-slate-600 mb-1",
+									children: "Note (Optional)"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "text",
+									maxLength: 120,
+									value: note,
+									onChange: (e) => setNote(e.target.value),
+									placeholder: "Dinner, Rent, Work...",
+									className: "w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:bg-white focus:border-emerald-500"
+								})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+									className: "block text-[11px] font-semibold text-slate-600 mb-1",
+									children: "TID / Ref (Optional)"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "text",
+									maxLength: 60,
+									value: referenceId,
+									onChange: (e) => setReferenceId(e.target.value),
+									placeholder: "Auto-generated if blank",
+									className: "w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:bg-white focus:border-emerald-500"
+								})] })]
+							})]
+						}),
+						kind === "send" && hasPin && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 space-y-1.5",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "text-xs font-bold text-emerald-900 flex items-center gap-1.5",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(KeyRound, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Verify 4-Digit Security PIN" })]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+								type: "password",
+								inputMode: "numeric",
+								maxLength: 4,
+								value: pinInput,
+								onChange: (e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 4)),
+								placeholder: "••••",
+								className: "w-full px-3 py-2 text-sm font-mono tracking-[0.4em] bg-white border border-emerald-200 rounded-xl focus:outline-none focus:border-emerald-500"
+							})]
+						}),
+						errorMsg && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded-xl",
+							children: errorMsg
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+							className: "text-[11px] text-slate-500 leading-relaxed flex items-start gap-1.5",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldCheck, { className: "w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+								"Pay directly using ",
+								PAYMENT_RAILS[method].name,
+								" / mobile banking and attach your confirmation receipt right inside this chat."
+							] })]
+						})
+					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "p-4 border-t border-slate-100 bg-white shrink-0",
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						type: "submit",
+						disabled: isSubmitting || !targetUser || !numericAmount,
+						className: "w-full min-h-[48px] bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-2xl shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 active:scale-[0.99] transition-all",
+						children: [isSubmitting && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LoaderCircle, { className: "w-4 h-4 animate-spin" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: kind === "send" ? `Send ${formatPKR(numericAmount || 0)} Receipt` : `Request ${formatPKR(numericAmount || 0)}` })]
+					})
+				})
+			]
+		})
+	});
+};
 // src/components/ChatArea.tsx
 var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall, onOpenGroupInfo, onReportSubmitted }) => {
 	const [messages, setMessages] = (0, import_react.useState)([]);
@@ -59372,6 +61840,15 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 	const [showEmojiPicker, setShowEmojiPicker] = (0, import_react.useState)(false);
 	const [showAttachMenu, setShowAttachMenu] = (0, import_react.useState)(false);
 	const [showMoreMenu, setShowMoreMenu] = (0, import_react.useState)(false);
+	const [showThemePicker, setShowThemePicker] = (0, import_react.useState)(false);
+	const [showPollModal, setShowPollModal] = (0, import_react.useState)(false);
+	const [pollQuestion, setPollQuestion] = (0, import_react.useState)("");
+	const [pollOptions, setPollOptions] = (0, import_react.useState)(["", ""]);
+	const [pollAllowMultiple, setPollAllowMultiple] = (0, import_react.useState)(false);
+	const [showPaymentModal, setShowPaymentModal] = (0, import_react.useState)(false);
+	const [copiedPayId, setCopiedPayId] = (0, import_react.useState)(null);
+	const [chatTheme, setChatTheme] = (0, import_react.useState)(themeService.getTheme());
+	const [isChatLocked, setIsChatLocked] = (0, import_react.useState)(false);
 	const messagesEndRef = (0, import_react.useRef)(null);
 	const messagesScrollRef = (0, import_react.useRef)(null);
 	const recordTimerRef = (0, import_react.useRef)(null);
@@ -59415,40 +61892,61 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 			if (recordStreamRef.current) recordStreamRef.current.getTracks().forEach((t) => t.stop());
 		};
 	}, []);
+	(0, import_react.useEffect)(() => {
+		const syncTheme = () => setChatTheme(themeService.getTheme());
+		return themeService.subscribe(syncTheme);
+	}, []);
+	(0, import_react.useEffect)(() => {
+		if (!chat) {
+			setIsChatLocked(false);
+			return;
+		}
+		const syncLock = () => setIsChatLocked(securityService.isChatLocked(chat.id));
+		syncLock();
+		return securityService.subscribe(syncLock);
+	}, [chat?.id]);
 	if (!chat) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-		className: "hidden md:flex flex-1 flex-col items-center justify-center bg-[#F8FAF9] text-center p-8 select-none",
-		children: [
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "w-24 h-24 mb-6 rounded-3xl bg-emerald-100/60 p-4 shadow-inner flex items-center justify-center",
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
-					src: "/assets/aistudio/download_7eb2aac4.jpeg",
-					alt: "DOST",
-					className: "w-full h-full object-cover rounded-2xl shadow-sm"
+		className: `hidden md:flex flex-1 flex-col items-center justify-center text-center p-8 select-none relative overflow-hidden ${chatTheme.canvasBg}`,
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: `absolute inset-0 pointer-events-none ${chatTheme.patternOpacity}`,
+			style: {
+				backgroundImage: `radial-gradient(${chatTheme.patternColor} 1.25px, transparent 1.25px)`,
+				backgroundSize: "26px 26px"
+			}
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "relative z-10 flex flex-col items-center max-w-sm",
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "w-24 h-24 mb-6 rounded-[28px] bg-white dark:bg-[#0D2116] p-2 shadow-[0_20px_45px_-12px_rgba(11,128,67,0.22)] ring-1 ring-emerald-950/10 flex items-center justify-center",
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+						src: "/assets/aistudio/download_7eb2aac4.jpeg",
+						alt: "DOST",
+						referrerPolicy: "no-referrer",
+						className: "w-full h-full object-cover rounded-[20px]"
+					})
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+					className: `text-2xl font-bold font-['Outfit'] mb-2 ${chatTheme.headerTitle}`,
+					children: "DOST Messaging App"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: `text-sm mb-6 leading-relaxed ${chatTheme.headerSubtitle}`,
+					children: "Select a conversation or open Contacts to message real registered DOST users in real time."
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-600/90",
+					children: "Developed by Husnain Butt · Version 1.0"
 				})
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
-				className: "text-2xl font-bold text-slate-800 font-['Outfit'] mb-2",
-				children: "DOST Messaging App"
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-				className: "text-sm text-slate-500 max-w-sm mb-6 leading-relaxed",
-				children: "Select a conversation or open Contacts to message real registered DOST users in real time."
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "flex items-center gap-2 text-xs text-emerald-800 bg-emerald-100/70 px-4 py-2 rounded-full font-medium",
-				children: [
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Developed by Husnain Butt" }),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "·" }),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Version 1.0" })
-				]
-			})
-		]
+			]
+		})]
 	});
-	const partnerId = chat.type === "group" ? null : chat.participants.find((p) => p !== currentUser?.id);
+	const partnerId = chat.type === "private" ? chat.participants.find((p) => p !== currentUser?.id) : null;
 	const partner = partnerId ? chatStore.getUser(partnerId) : null;
 	const isBlocked = partner ? chatStore.isUserBlocked(partner.id) : false;
-	const chatTitle = chat.type === "group" ? chat.name || "Group Chat" : partner?.displayName || "DOST User";
-	const chatAvatar = chat.type === "group" ? chat.photoUrl || "/assets/aistudio/download_7eb2aac4.jpeg" : partner?.privacySettings?.profilePhotoVisibility === "nobody" ? `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(chatTitle)}` : partner?.photoUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${partner?.id || "dost"}`;
+	const isGroupOrChannelAdmin = !currentUser ? false : (chat.adminIds || []).includes(currentUser.id) || chat.createdBy === currentUser.id;
+	const isPostingRestricted = chat.type === "channel" && !isGroupOrChannelAdmin || chat.type === "group" && Boolean(chat.onlyAdminsCanMessage) && !isGroupOrChannelAdmin;
+	const chatTitle = chat.type === "group" || chat.type === "channel" || chat.type === "broadcast" ? chat.name || "DOST Chat" : partner?.displayName || "DOST User";
+	const chatAvatar = chat.type === "group" || chat.type === "channel" || chat.type === "broadcast" ? chat.photoUrl || "/assets/aistudio/download_7eb2aac4.jpeg" : partner?.privacySettings?.profilePhotoVisibility === "nobody" ? `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(chatTitle)}` : partner?.photoUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${partner?.id || "dost"}`;
 	const showPartnerOnline = partner && partner.privacySettings?.lastSeenVisibility !== "nobody" ? partner.isOnline : false;
 	const typingParticipantNames = Object.entries(chat.typingUsers || {}).filter(([uid, active]) => uid !== currentUser?.id && active === true).map(([uid]) => chatStore.getUser(uid)?.displayName || "Someone");
 	const formatLastSeen = (val) => {
@@ -59703,13 +62201,13 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 		return (u.displayName || "").toLowerCase().includes(q) || (u.email || "").toLowerCase().includes(q);
 	});
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-		className: "flex-1 flex flex-col h-full bg-[#EFEAE2] relative overflow-hidden select-none",
+		className: `flex-1 flex flex-col h-full relative overflow-hidden select-none transition-colors duration-300 ${chatTheme.canvasBg}`,
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "absolute inset-0 opacity-[0.03] pointer-events-none",
+				className: `absolute inset-0 pointer-events-none ${chatTheme.patternOpacity}`,
 				style: {
-					backgroundImage: `radial-gradient(#0FA958 1px, transparent 1px)`,
-					backgroundSize: "24px 24px"
+					backgroundImage: `radial-gradient(${chatTheme.patternColor} 1.25px, transparent 1.25px)`,
+					backgroundSize: "26px 26px"
 				}
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
@@ -59727,13 +62225,13 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 				className: "hidden"
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "relative z-20 flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200/80 shadow-xs",
+				className: `relative z-20 flex items-center justify-between px-4 py-3 shadow-xs transition-colors ${chatTheme.headerBg}`,
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "flex items-center gap-3 min-w-0",
 					children: [
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							onClick: onBack,
-							className: "md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 rounded-lg cursor-pointer",
+							className: `md:hidden p-2 -ml-1.5 rounded-xl cursor-pointer transition-colors ${chatTheme.headerIcon} ${chatTheme.headerHover}`,
 							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowLeft, { className: "w-5 h-5" })
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -59745,7 +62243,7 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
 								src: chatAvatar,
 								alt: chatTitle,
-								className: "w-10 h-10 rounded-full object-cover border border-slate-200"
+								className: "w-10 h-10 rounded-full object-cover ring-2 ring-emerald-500/20"
 							}), showPartnerOnline && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" })]
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -59755,31 +62253,37 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 							},
 							className: "min-w-0 cursor-pointer",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
-								className: "text-sm font-bold text-slate-800 truncate font-['Outfit']",
+								className: `text-sm font-bold truncate font-['Outfit'] ${chatTheme.headerTitle}`,
 								children: chatTitle
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-								className: `text-[11px] truncate ${typingParticipantNames.length > 0 ? "text-emerald-600 font-semibold" : "text-slate-500"}`,
-								children: typingParticipantNames.length > 0 ? chat.type === "group" ? `${typingParticipantNames[0]} is typing...` : "typing..." : chat.type === "group" ? `${chat.participants.length} members · tap for info` : partner?.privacySettings?.lastSeenVisibility === "nobody" ? "Private status" : showPartnerOnline ? "Online" : formatLastSeen(partner?.lastSeen)
+								className: `text-[11px] truncate ${typingParticipantNames.length > 0 ? "text-emerald-500 font-semibold" : chatTheme.headerSubtitle}`,
+								children: typingParticipantNames.length > 0 ? chat.type === "group" ? `${typingParticipantNames[0]} is typing...` : "typing..." : chat.type === "channel" ? `${chat.participants.length} follower${chat.participants.length === 1 ? "" : "s"} · ${chat.isPublic ? "Public Channel" : "Private Channel"}` : chat.type === "broadcast" ? `Broadcast list · ${Math.max(chat.participants.length - 1, 0)} recipients` : chat.type === "group" ? `${chat.participants.length} members · tap for info` : partner?.privacySettings?.lastSeenVisibility === "nobody" ? "Private status" : showPartnerOnline ? "Online" : formatLastSeen(partner?.lastSeen)
 							})]
 						})
 					]
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "flex items-center gap-1 shrink-0 text-slate-600",
+					className: `flex items-center gap-0.5 shrink-0 ${chatTheme.headerIcon}`,
 					children: [
 						partner && !isBlocked && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							onClick: () => onStartVoiceCall(partner),
-							className: "p-2 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-colors cursor-pointer",
+							className: `p-2.5 rounded-xl transition-colors cursor-pointer ${chatTheme.headerHover}`,
 							title: "Start Voice Call",
 							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Phone, { className: "w-5 h-5" })
 						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							onClick: () => onStartVideoCall(partner),
-							className: "p-2 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-colors cursor-pointer",
+							className: `p-2.5 rounded-xl transition-colors cursor-pointer ${chatTheme.headerHover}`,
 							title: "Start Video Call",
 							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Video, { className: "w-5 h-5" })
 						})] }),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							onClick: () => setShowThemePicker(true),
+							className: `p-2.5 rounded-xl transition-colors cursor-pointer ${chatTheme.headerHover}`,
+							title: "Change Chat Theme",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Palette, { className: "w-5 h-5" })
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 							onClick: () => setIsSearchOpen(!isSearchOpen),
-							className: `p-2 rounded-xl transition-colors cursor-pointer ${isSearchOpen ? "bg-emerald-100 text-emerald-800" : "hover:bg-slate-100"}`,
+							className: `p-2.5 rounded-xl transition-colors cursor-pointer ${isSearchOpen ? "bg-emerald-500/15 text-emerald-500" : chatTheme.headerHover}`,
 							title: "Search inside chat",
 							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Search, { className: "w-5 h-5" })
 						}),
@@ -59787,7 +62291,7 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 							className: "relative",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								onClick: () => setShowMoreMenu(!showMoreMenu),
-								className: "p-2 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer",
+								className: `p-2.5 rounded-xl transition-colors cursor-pointer ${chatTheme.headerHover}`,
 								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EllipsisVertical, { className: "w-5 h-5" })
 							}), showMoreMenu && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "absolute right-0 top-11 z-30 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 p-1.5 text-xs text-slate-700 animate-scale-in",
@@ -59826,6 +62330,15 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldAlert, { className: "w-4 h-4 text-rose-500" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Report Contact" })]
 										})
 									] }),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										onClick: () => {
+											if (isChatLocked) securityService.unlockChat(chat.id);
+											else securityService.lockChat(chat.id);
+											setShowMoreMenu(false);
+										},
+										className: "w-full text-left px-3 py-2 hover:bg-slate-50 rounded-xl flex items-center gap-2 cursor-pointer",
+										children: isChatLocked ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(LockOpen, { className: "w-4 h-4 text-emerald-600" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Unlock Chat" })] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { className: "w-4 h-4 text-emerald-600" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Lock Chat" })] })
+									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "border-t border-slate-100 my-1" }),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 										onClick: () => {
@@ -59842,15 +62355,15 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 				})]
 			}),
 			isSearchOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "bg-emerald-50 px-4 py-2 border-b border-emerald-200/80 flex items-center justify-between z-20",
+				className: `px-4 py-2 flex items-center justify-between z-20 ${chatTheme.searchBarBg}`,
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "flex items-center gap-2 flex-1",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Search, { className: "w-4 h-4 text-emerald-700" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Search, { className: "w-4 h-4 text-emerald-600" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 						type: "text",
 						value: searchQuery,
 						onChange: (e) => setSearchQuery(e.target.value),
 						placeholder: "Search messages in this conversation...",
-						className: "bg-transparent text-xs text-slate-800 placeholder-slate-400 focus:outline-none flex-1",
+						className: "bg-transparent text-xs placeholder-slate-400 focus:outline-none flex-1",
 						autoFocus: true
 					})]
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
@@ -59881,14 +62394,14 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						className: "flex justify-center my-2",
 						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "bg-white/80 backdrop-blur-xs text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-3 py-1 rounded-full shadow-xs border border-slate-200/50",
+							className: `text-[10px] font-semibold uppercase tracking-[0.14em] px-3 py-1 rounded-full ${chatTheme.dividerBadge}`,
 							children: "End-to-End Real-Time Sync"
 						})
 					}),
 					filteredMessages.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						className: "flex flex-col items-center justify-center py-12 text-center text-slate-400",
 						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							className: "text-xs bg-white/80 px-4 py-2 rounded-2xl shadow-xs",
+							className: `text-xs px-4 py-2 rounded-2xl ${chatTheme.dividerBadge}`,
 							children: searchQuery ? "No messages match your search." : `Say Salam / Hello to ${chatTitle}!`
 						})
 					}),
@@ -59898,36 +62411,39 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 						const prevMsg = index > 0 ? filteredMessages[index - 1] : null;
 						const showDateDivider = !prevMsg || new Date(prevMsg.createdAt).toDateString() !== new Date(msg.createdAt).toDateString();
 						return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_react.Fragment, { children: [showDateDivider && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "flex justify-center my-2",
+							className: "flex justify-center my-2.5",
 							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: "bg-white/90 text-[10px] font-semibold text-slate-500 px-3 py-0.5 rounded-full shadow-xs border border-slate-200/60",
+								className: `text-[10px] font-semibold px-3 py-0.5 rounded-full ${chatTheme.dividerBadge}`,
 								children: formatDateDivider(msg.createdAt)
 							})
 						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: `flex flex-col ${isMe ? "items-end" : "items-start"} group/msg relative`,
 							children: [
 								!isMe && chat.type === "group" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "text-[10px] font-bold text-emerald-800 mb-1 ml-2",
+									className: `text-[10px] font-bold mb-1 ml-2 ${chatTheme.isDark ? "text-emerald-300" : "text-emerald-800"}`,
 									children: msg.senderName
 								}),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 									onClick: () => {
 										if (!msg.isDeleted) setSelectedMsgId(isSelected ? null : msg.id);
 									},
-									className: `relative max-w-[85%] md:max-w-[70%] p-3 text-sm shadow-xs transition-all cursor-pointer ${isMe ? "bg-[#0FA958] text-white rounded-2xl rounded-tr-xs" : "bg-white text-slate-800 border border-slate-100 rounded-2xl rounded-tl-xs"} ${isSelected ? "ring-2 ring-emerald-400/70" : ""}`,
+									className: `relative max-w-[85%] md:max-w-[70%] px-3.5 py-2.5 text-sm transition-all cursor-pointer ${isMe ? chatTheme.outgoingBubble : chatTheme.incomingBubble} ${isSelected ? "ring-2 ring-emerald-400/80" : ""}`,
 									children: [
 										msg.forwardedFrom && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 											className: "flex items-center gap-1 text-[10px] opacity-80 italic mb-1",
 											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Forward, { className: "w-3 h-3" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Forwarded" })]
 										}),
 										msg.replyToText && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: `mb-2 p-2 rounded-xl text-xs border-l-4 truncate ${isMe ? "bg-emerald-700/60 border-white text-white" : "bg-slate-100 border-emerald-600 text-slate-700"}`,
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-												className: "font-semibold block text-[10px] opacity-80",
-												children: msg.replyToSenderName || "Reply"
-											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-												className: "truncate block opacity-90",
-												children: msg.replyToText
+											className: `mb-2 p-2 rounded-xl text-xs flex items-stretch gap-2 overflow-hidden ${isMe ? chatTheme.outgoingReplyBox : chatTheme.incomingReplyBox}`,
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `w-1 rounded-full shrink-0 ${isMe ? chatTheme.outgoingReplyBar : chatTheme.incomingReplyBar}` }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "min-w-0 flex-1",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "font-semibold block text-[10px] opacity-80",
+													children: msg.replyToSenderName || "Reply"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "truncate block opacity-90",
+													children: msg.replyToText
+												})]
 											})]
 										}),
 										msg.type === "image" && msg.mediaUrl && !msg.isDeleted && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -59951,7 +62467,7 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 											className: "flex items-center gap-3 py-1 min-w-[220px]",
 											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 												onClick: () => toggleAudioPlayback(msg),
-												className: `w-10 h-10 rounded-full flex items-center justify-center shrink-0 cursor-pointer ${isMe ? "bg-white text-emerald-700" : "bg-emerald-600 text-white"}`,
+												className: `w-10 h-10 rounded-full flex items-center justify-center shrink-0 cursor-pointer ${isMe ? chatTheme.outgoingAudioBtn : chatTheme.incomingAudioBtn}`,
 												children: playingAudioId === msg.id ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Pause, { className: "w-5 h-5" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Play, { className: "w-5 h-5 ml-0.5" })
 											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 												className: "flex-1",
@@ -59975,7 +62491,7 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 														65,
 														30
 													].map((h, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-														className: `w-1 rounded-full transition-all ${playingAudioId === msg.id ? isMe ? "bg-white animate-pulse" : "bg-emerald-700 animate-pulse" : isMe ? "bg-emerald-200/70" : "bg-slate-300"}`,
+														className: `w-1 rounded-full transition-all ${playingAudioId === msg.id ? isMe ? "bg-white animate-pulse" : "bg-emerald-500 animate-pulse" : isMe ? chatTheme.outgoingAudioWave : chatTheme.incomingAudioWave}`,
 														style: { height: `${h}%` }
 													}, i))
 												}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -59990,10 +62506,10 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 										msg.type === "document" && !msg.isDeleted && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("a", {
 											href: msg.mediaUrl || "#",
 											download: msg.fileName || "document",
-											className: `flex items-center gap-3 p-2.5 rounded-xl border mb-1 cursor-pointer ${isMe ? "bg-emerald-700/50 border-emerald-400/30 text-white" : "bg-slate-50 border-slate-200 text-slate-800"}`,
+											className: `flex items-center gap-3 p-2.5 rounded-xl border mb-1 cursor-pointer ${isMe ? chatTheme.outgoingDocBox : chatTheme.incomingDocBox}`,
 											children: [
 												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-													className: `p-2 rounded-lg ${isMe ? "bg-white/20" : "bg-emerald-100 text-emerald-700"}`,
+													className: `p-2 rounded-lg ${isMe ? "bg-white/20" : "bg-emerald-500/15 text-emerald-600"}`,
 													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileText, { className: "w-6 h-6" })
 												}),
 												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -60009,12 +62525,144 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 												/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Download, { className: "w-4 h-4 shrink-0 opacity-80 hover:opacity-100" })
 											]
 										}),
-										msg.text && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										msg.type === "poll" && msg.poll && !msg.isDeleted && (() => {
+											const totalVotes = msg.poll.options.reduce((sum, o) => sum + o.voterIds.length, 0);
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "min-w-[230px] sm:min-w-[270px] space-y-2 py-0.5",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex items-start gap-2",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChartColumn, { className: `w-4 h-4 mt-0.5 shrink-0 ${isMe ? "text-emerald-100" : "text-emerald-600"}` }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+														className: "font-bold text-sm leading-snug",
+														children: msg.poll.question
+													}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+														className: "text-[10px] opacity-75",
+														children: [
+															msg.poll.allowMultiple ? "Select multiple" : "Select one",
+															" · ",
+															totalVotes,
+															" vote",
+															totalVotes === 1 ? "" : "s"
+														]
+													})] })]
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "space-y-1.5 pt-1",
+													children: msg.poll.options.map((opt) => {
+														const voted = currentUser ? opt.voterIds.includes(currentUser.id) : false;
+														const pct = totalVotes > 0 ? Math.round(opt.voterIds.length / totalVotes * 100) : 0;
+														return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+															type: "button",
+															onClick: (e) => {
+																e.stopPropagation();
+																chatStore.voteOnPoll(msg.id, opt.id);
+															},
+															className: `relative w-full text-left rounded-xl px-3 py-2 overflow-hidden border transition-all cursor-pointer ${isMe ? voted ? "border-white bg-white/20 text-white" : "border-white/25 bg-black/10 text-white hover:bg-white/15" : voted ? "border-emerald-500 bg-emerald-50/70 text-slate-900" : "border-slate-200 bg-slate-50/80 text-slate-800 hover:bg-slate-100"}`,
+															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+																className: `absolute inset-y-0 left-0 transition-all duration-300 ${isMe ? "bg-white/20" : "bg-emerald-500/15"}`,
+																style: { width: `${pct}%` }
+															}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+																className: "relative flex items-center justify-between gap-2 text-xs",
+																children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+																	className: "font-semibold flex items-center gap-1.5 truncate",
+																	children: [voted && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { className: "w-3.5 h-3.5 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																		className: "truncate",
+																		children: opt.text
+																	})]
+																}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+																	className: "font-mono text-[11px] shrink-0 opacity-85",
+																	children: [
+																		pct,
+																		"% (",
+																		opt.voterIds.length,
+																		")"
+																	]
+																})]
+															})]
+														}, opt.id);
+													})
+												})]
+											});
+										})(),
+										msg.type === "payment" && msg.payment && !msg.isDeleted && (() => {
+											const p = msg.payment;
+											const railName = PAYMENT_RAILS[p.method]?.name || p.method;
+											const isReceiver = currentUser?.id === p.receiverId;
+											const statusLabel = p.status === "completed" ? "Completed" : p.status === "declined" ? "Declined" : p.status === "sent" ? "Sent · Awaiting confirmation" : "Requested";
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												onClick: (e) => e.stopPropagation(),
+												className: `min-w-[235px] sm:min-w-[275px] rounded-2xl p-3 space-y-2.5 border ${isMe ? "bg-white/12 border-white/25 text-white" : "bg-slate-50 border-slate-200 text-slate-900"}`,
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex items-center justify-between gap-2 text-[11px]",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+															className: "font-bold flex items-center gap-1.5",
+															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Banknote, { className: "w-3.5 h-3.5 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+																railName,
+																" · ",
+																p.kind === "send" ? "Payment" : "Request"
+															] })]
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+															className: `font-semibold flex items-center gap-1 ${p.status === "completed" ? isMe ? "text-emerald-200" : "text-emerald-700" : p.status === "declined" ? isMe ? "text-rose-200" : "text-rose-600" : "opacity-85"}`,
+															children: [p.status === "completed" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CheckCheck, { className: "w-3.5 h-3.5" }) : p.status === "declined" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { className: "w-3.5 h-3.5" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Clock, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: statusLabel })]
+														})]
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+														className: "text-xl font-extrabold font-mono tabular-nums tracking-tight",
+														children: formatPKR(p.amount)
+													}), p.note && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+														className: "text-xs opacity-90 mt-0.5 break-words",
+														children: p.note
+													})] }),
+													(p.accountNumber || p.referenceId) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: `text-[10px] pt-2 border-t space-y-1 ${isMe ? "border-white/20 text-white/85" : "border-slate-200 text-slate-600"}`,
+														children: [p.accountNumber && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+															className: "flex items-center justify-between gap-2",
+															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+																className: "font-mono truncate",
+																children: [p.accountTitle ? `${p.accountTitle} · ` : "", p.accountNumber]
+															}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+																type: "button",
+																onClick: () => {
+																	navigator.clipboard?.writeText(p.accountNumber || "");
+																	setCopiedPayId(msg.id);
+																	setTimeout(() => setCopiedPayId(null), 1500);
+																},
+																className: "font-semibold underline shrink-0 cursor-pointer",
+																children: copiedPayId === msg.id ? "Copied" : "Copy"
+															})]
+														}), p.referenceId && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+															className: "font-mono opacity-80",
+															children: ["Ref: ", p.referenceId]
+														})]
+													}),
+													isReceiver && p.kind === "request" && p.status === "pending" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex gap-1.5 pt-1",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+															type: "button",
+															onClick: () => void chatStore.respondToPaymentMessage(msg.id, "completed"),
+															className: "flex-1 min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-colors",
+															children: "Pay & Confirm"
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+															type: "button",
+															onClick: () => void chatStore.respondToPaymentMessage(msg.id, "declined"),
+															className: `min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer ${isMe ? "bg-white/15 hover:bg-white/25 text-white" : "bg-slate-200 hover:bg-slate-300 text-slate-700"}`,
+															children: "Decline"
+														})]
+													}),
+													isReceiver && p.kind === "send" && p.status === "sent" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+														type: "button",
+														onClick: () => void chatStore.respondToPaymentMessage(msg.id, "completed"),
+														className: "w-full min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-colors",
+														children: "Confirm Money Received"
+													})
+												]
+											});
+										})(),
+										msg.text && msg.type !== "poll" && msg.type !== "payment" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 											className: `whitespace-pre-wrap break-words leading-relaxed ${msg.isDeleted ? "italic opacity-75 text-xs" : ""}`,
 											children: msg.text
 										}),
 										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: `flex items-center justify-end gap-1 mt-1 text-[10px] ${isMe ? "text-emerald-100" : "text-slate-400"}`,
+											className: `flex items-center justify-end gap-1 mt-1 text-[10px] ${isMe ? chatTheme.outgoingMeta : chatTheme.incomingMeta}`,
 											children: [
 												msg.isEdited && !msg.isDeleted && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 													className: "italic mr-1",
@@ -60030,10 +62678,25 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 												})
 											]
 										}),
-										msg.reactions && msg.reactions.length > 0 && !msg.isDeleted && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-											className: "absolute -bottom-2 right-2 bg-white rounded-full shadow-md px-1.5 py-0.5 border border-slate-200 flex items-center gap-0.5 text-xs",
-											children: msg.reactions.map((r, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: r.emoji }, i))
-										})
+										msg.reactions && msg.reactions.length > 0 && !msg.isDeleted && (() => {
+											const counts = /* @__PURE__ */ new Map();
+											msg.reactions.forEach((r) => counts.set(r.emoji, (counts.get(r.emoji) || 0) + 1));
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+												className: "absolute -bottom-2.5 right-2 bg-white text-slate-700 rounded-full shadow-md px-2 py-0.5 border border-slate-200 flex items-center gap-1.5 text-[11px]",
+												children: Array.from(counts.entries()).map(([emoji, count]) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+													type: "button",
+													onClick: (e) => {
+														e.stopPropagation();
+														chatStore.reactToMessage(msg.id, emoji);
+													},
+													className: "hover:scale-110 transition-transform flex items-center gap-0.5 cursor-pointer",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: emoji }), count > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+														className: "font-bold text-[10px]",
+														children: count
+													})]
+												}, emoji))
+											});
+										})()
 									]
 								}),
 								!msg.isDeleted && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -60116,49 +62779,55 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 			}),
 			showScrollBottom && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 				onClick: () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }),
-				className: "absolute bottom-24 right-6 z-20 w-9 h-9 bg-white text-emerald-700 rounded-full shadow-lg border border-slate-200 flex items-center justify-center hover:bg-emerald-50 cursor-pointer",
+				className: `absolute bottom-24 right-6 z-20 w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-colors ${chatTheme.scrollDownBtn}`,
 				title: "Jump to latest messages",
 				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowDown, { className: "w-4 h-4" })
 			}),
 			replyTo && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "bg-emerald-50 px-4 py-2 border-t border-emerald-200 flex items-center justify-between z-20",
+				className: `px-4 py-2 flex items-center justify-between z-20 ${chatTheme.replyBannerBg}`,
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "border-l-4 border-emerald-600 pl-3",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-						className: "text-[11px] font-bold text-emerald-800",
-						children: ["Replying to ", replyTo.senderName]
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-						className: "text-xs text-slate-600 truncate max-w-md",
-						children: replyTo.text || `[${replyTo.type}]`
+					className: "flex items-stretch gap-2.5 min-w-0",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "w-1 rounded-full bg-emerald-600 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "min-w-0",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+							className: "text-[11px] font-bold text-emerald-600",
+							children: ["Replying to ", replyTo.senderName]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "text-xs opacity-80 truncate max-w-md",
+							children: replyTo.text || `[${replyTo.type}]`
+						})]
 					})]
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 					onClick: () => setReplyTo(null),
-					className: "p-1 text-slate-400 hover:text-slate-600 cursor-pointer",
+					className: "p-1.5 text-slate-400 hover:text-slate-600 cursor-pointer",
 					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { className: "w-4 h-4" })
 				})]
 			}),
 			editingMessage && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "bg-amber-50 px-4 py-2 border-t border-amber-200 flex items-center justify-between z-20",
+				className: "bg-amber-50/95 px-4 py-2 border-t border-amber-200 flex items-center justify-between z-20",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "border-l-4 border-amber-600 pl-3",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-						className: "text-[11px] font-bold text-amber-800",
-						children: "Editing Message"
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-						className: "text-xs text-slate-600 truncate max-w-md",
-						children: editingMessage.text
+					className: "flex items-stretch gap-2.5 min-w-0",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "w-1 rounded-full bg-amber-600 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "min-w-0",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "text-[11px] font-bold text-amber-800",
+							children: "Editing Message"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "text-xs text-slate-600 truncate max-w-md",
+							children: editingMessage.text
+						})]
 					})]
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 					onClick: () => {
 						setEditingMessage(null);
 						setInputText("");
 					},
-					className: "p-1 text-slate-400 hover:text-slate-600 cursor-pointer",
+					className: "p-1.5 text-slate-400 hover:text-slate-600 cursor-pointer",
 					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { className: "w-4 h-4" })
 				})]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "bg-white px-4 py-3 border-t border-slate-200/80 z-20 mb-16 md:mb-0",
+				className: `px-4 py-3 z-20 mb-16 md:mb-0 transition-colors ${chatTheme.composerBg}`,
 				children: isBlocked && partner ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "flex items-center justify-between py-1 px-3 bg-slate-100 rounded-xl text-xs text-slate-600",
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
@@ -60170,9 +62839,20 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 						className: "text-emerald-700 font-semibold hover:underline cursor-pointer",
 						children: "Unblock"
 					})]
+				}) : isPostingRestricted ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "flex items-center justify-between py-2 px-3 bg-slate-100/90 rounded-xl text-xs text-slate-600",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: chat.type === "channel" ? "Only channel admins can post updates." : "Only group admins can send messages in this group." }), chat.type === "channel" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						onClick: async () => {
+							if (currentUser && chat.participants.includes(currentUser.id)) await chatStore.leaveChannel(chat.id);
+							else await chatStore.joinChannel(chat.id);
+						},
+						className: "px-3 py-1 bg-emerald-600 text-white rounded-lg font-semibold cursor-pointer",
+						children: currentUser && chat.participants.includes(currentUser.id) ? "Following" : "Follow"
+					})]
 				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
 					showAttachMenu && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "absolute bottom-20 left-12 z-30 bg-white rounded-2xl shadow-xl border border-slate-100 p-3 flex gap-4 text-xs animate-scale-in",
+						className: "absolute bottom-20 left-6 sm:left-12 z-30 bg-white rounded-2xl shadow-xl border border-slate-100 p-3 flex flex-wrap gap-3 sm:gap-4 text-xs animate-scale-in",
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 								onClick: () => mediaInputRef.current?.click(),
@@ -60200,6 +62880,31 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 									className: "w-11 h-11 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center shadow-xs",
 									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Mic, { className: "w-5 h-5" })
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Voice Note" })]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								onClick: () => {
+									setShowAttachMenu(false);
+									setPollQuestion("");
+									setPollOptions(["", ""]);
+									setPollAllowMultiple(false);
+									setShowPollModal(true);
+								},
+								className: "flex flex-col items-center gap-1.5 text-slate-700 hover:text-sky-700 cursor-pointer",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "w-11 h-11 bg-sky-100 text-sky-700 rounded-2xl flex items-center justify-center shadow-xs",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChartColumn, { className: "w-5 h-5" })
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Create Poll" })]
+							}),
+							(chat.type === "private" || chat.type === "group") && currentUser && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								onClick: () => {
+									setShowAttachMenu(false);
+									setShowPaymentModal(true);
+								},
+								className: "flex flex-col items-center gap-1.5 text-slate-700 hover:text-emerald-700 cursor-pointer",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "w-11 h-11 bg-emerald-600 text-white rounded-2xl flex items-center justify-center shadow-xs",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Banknote, { className: "w-5 h-5" })
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "DOST Pay" })]
 							})
 						]
 					}),
@@ -60285,14 +62990,14 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
 								onClick: () => setShowEmojiPicker(!showEmojiPicker),
-								className: "p-2 text-slate-400 hover:text-slate-600 rounded-xl transition-colors cursor-pointer",
+								className: `p-2.5 rounded-xl transition-colors cursor-pointer ${chatTheme.headerIcon} ${chatTheme.headerHover}`,
 								title: "Emoji",
 								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Smile, { className: "w-5 h-5" })
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
 								onClick: () => setShowAttachMenu(!showAttachMenu),
-								className: "p-2 text-slate-400 hover:text-slate-600 rounded-xl transition-colors cursor-pointer",
+								className: `p-2.5 rounded-xl transition-colors cursor-pointer ${chatTheme.headerIcon} ${chatTheme.headerHover}`,
 								title: "Attach Photo, Video, or Document",
 								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Paperclip, { className: "w-5 h-5" })
 							}),
@@ -60301,17 +63006,17 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 								value: inputText,
 								onChange: (e) => handleInputChange(e.target.value),
 								placeholder: "Type a message...",
-								className: "flex-1 py-2.5 px-4 bg-slate-100 focus:bg-white text-sm text-slate-800 placeholder-slate-400 rounded-2xl border border-transparent focus:border-emerald-500 focus:outline-none transition-all"
+								className: `flex-1 py-2.5 px-4 text-sm rounded-2xl focus:outline-none transition-all ${chatTheme.composerInput}`
 							}),
 							inputText.trim() ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "submit",
-								className: "p-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl shadow-md transition-all cursor-pointer active:scale-95",
+								className: `p-2.5 rounded-2xl transition-all cursor-pointer active:scale-95 ${chatTheme.sendButton}`,
 								title: "Send Message",
 								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Send, { className: "w-5 h-5" })
 							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
 								onClick: handleStartRecording,
-								className: "p-2.5 bg-emerald-100 text-emerald-800 hover:bg-emerald-200 rounded-2xl transition-colors cursor-pointer",
+								className: `p-2.5 rounded-2xl transition-colors cursor-pointer ${chatTheme.micButton}`,
 								title: "Record Voice Message",
 								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Mic, { className: "w-5 h-5" })
 							})
@@ -60558,6 +63263,173 @@ var ChatArea = ({ chat, currentUser, onBack, onStartVoiceCall, onStartVideoCall,
 						})
 					]
 				})
+			}),
+			showThemePicker && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				onClick: () => setShowThemePicker(false),
+				className: "fixed inset-0 z-50 bg-black/55 flex items-end sm:items-center justify-center p-0 sm:p-4 backdrop-blur-xs",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					onClick: (e) => e.stopPropagation(),
+					className: "bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl border border-slate-100",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-center justify-between mb-4",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+							className: "text-base font-bold text-slate-900 font-['Outfit']",
+							children: "Chat Theme"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "text-xs text-slate-500",
+							children: "Pick a wallpaper & message bubble style"
+						})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							onClick: () => setShowThemePicker(false),
+							className: "p-2 text-slate-400 hover:text-slate-700 rounded-xl cursor-pointer",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { className: "w-5 h-5" })
+						})]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "space-y-2.5 max-h-[60vh] overflow-y-auto pr-1",
+						children: Object.keys(CHAT_THEMES).map((id) => {
+							const t = CHAT_THEMES[id];
+							const isActive = chatTheme.id === id;
+							return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								type: "button",
+								onClick: () => {
+									themeService.setTheme(id);
+									setShowThemePicker(false);
+								},
+								className: `w-full flex items-center justify-between gap-3 p-3 rounded-2xl border text-left transition-all cursor-pointer ${isActive ? "border-emerald-500 bg-emerald-50/70 ring-1 ring-emerald-500/30" : "border-slate-200/80 hover:bg-slate-50"}`,
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center gap-3 min-w-0",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "w-11 h-11 rounded-xl shrink-0 border border-black/10 flex items-center justify-center relative overflow-hidden",
+										style: { backgroundColor: t.swatchCanvas },
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "w-5 h-3.5 rounded-md shadow-xs translate-x-1 -translate-y-1",
+											style: { backgroundColor: t.swatchPrimary }
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `w-4 h-3 rounded-md shadow-xs -translate-x-1.5 translate-y-1.5 ${t.isDark ? "bg-[#13261D] border border-emerald-400/20" : "bg-white border border-black/10"}` })]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "min-w-0",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "text-sm font-bold text-slate-800 truncate",
+											children: t.name
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "text-[11px] text-slate-500 truncate",
+											children: t.subtitle
+										})]
+									})]
+								}), isActive && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { className: "w-3.5 h-3.5" })
+								})]
+							}, id);
+						})
+					})]
+				})
+			}),
+			showPollModal && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				onClick: () => setShowPollModal(false),
+				className: "fixed inset-0 z-50 bg-black/55 flex items-center justify-center p-4 backdrop-blur-xs",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
+					onClick: (e) => e.stopPropagation(),
+					onSubmit: async (e) => {
+						e.preventDefault();
+						const validOpts = pollOptions.map((o) => o.trim()).filter(Boolean);
+						if (!pollQuestion.trim() || validOpts.length < 2) return;
+						await chatStore.sendPollMessage(chat.id, pollQuestion, validOpts, pollAllowMultiple);
+						setShowPollModal(false);
+					},
+					className: "bg-white rounded-3xl p-5 max-w-sm w-full shadow-2xl border border-slate-100 space-y-4 text-slate-800",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex items-center justify-between",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center gap-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChartColumn, { className: "w-5 h-5" })
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+									className: "text-sm font-bold font-['Outfit']",
+									children: "Create Poll"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-[11px] text-slate-500",
+									children: "Ask members to vote in real time"
+								})] })]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => setShowPollModal(false),
+								className: "p-1.5 text-slate-400 hover:text-slate-600 cursor-pointer",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { className: "w-4 h-4" })
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+							className: "block text-xs font-semibold text-slate-700 mb-1",
+							children: "Question"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+							type: "text",
+							value: pollQuestion,
+							onChange: (e) => setPollQuestion(e.target.value),
+							placeholder: "Ask a question...",
+							className: "w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-500",
+							required: true
+						})] }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "space-y-2",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+									className: "block text-xs font-semibold text-slate-700",
+									children: "Options"
+								}),
+								pollOptions.map((opt, idx) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center gap-1.5",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										type: "text",
+										value: opt,
+										onChange: (e) => {
+											const next = [...pollOptions];
+											next[idx] = e.target.value;
+											setPollOptions(next);
+										},
+										placeholder: `Option ${idx + 1}`,
+										className: "flex-1 px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-500",
+										required: idx < 2
+									}), pollOptions.length > 2 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: () => setPollOptions(pollOptions.filter((_, i) => i !== idx)),
+										className: "p-1.5 text-slate-400 hover:text-rose-600 cursor-pointer",
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { className: "w-4 h-4" })
+									})]
+								}, idx)),
+								pollOptions.length < 6 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									onClick: () => setPollOptions([...pollOptions, ""]),
+									className: "text-xs font-semibold text-emerald-700 hover:underline inline-flex items-center gap-1 cursor-pointer",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Add Option" })]
+								})
+							]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+							className: "flex items-center justify-between text-xs pt-1 border-t border-slate-100 cursor-pointer",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "font-semibold text-slate-700",
+								children: "Allow multiple answers"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+								type: "checkbox",
+								checked: pollAllowMultiple,
+								onChange: (e) => setPollAllowMultiple(e.target.checked),
+								className: "w-4 h-4 accent-emerald-600 cursor-pointer"
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "submit",
+							className: "w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-md cursor-pointer",
+							children: "Send Poll"
+						})
+					]
+				})
+			}),
+			currentUser && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PaymentModal, {
+				isOpen: showPaymentModal,
+				onClose: () => setShowPaymentModal(false),
+				chat,
+				currentUser,
+				defaultPartner: partner || null
 			})
 		]
 	});
@@ -62053,6 +64925,8 @@ var GroupModal = ({ isOpen, onClose, currentUser, existingChat, onGroupCreated, 
 	const [memberSearch, setMemberSearch] = (0, import_react.useState)("");
 	const [selectedMemberIds, setSelectedMemberIds] = (0, import_react.useState)(existingChat ? existingChat.participants : [currentUser.id]);
 	const [adminIds, setAdminIds] = (0, import_react.useState)(existingChat?.adminIds || [currentUser.id]);
+	const [onlyAdminsCanMessage, setOnlyAdminsCanMessage] = (0, import_react.useState)(Boolean(existingChat?.onlyAdminsCanMessage));
+	const [onlyAdminsCanEdit, setOnlyAdminsCanEdit] = (0, import_react.useState)(Boolean(existingChat?.onlyAdminsCanEdit));
 	const [confirmLeave, setConfirmLeave] = (0, import_react.useState)(false);
 	const [isSaving, setIsSaving] = (0, import_react.useState)(false);
 	const fileInputRef = (0, import_react.useRef)(null);
@@ -62066,6 +64940,8 @@ var GroupModal = ({ isOpen, onClose, currentUser, existingChat, onGroupCreated, 
 			setConfirmLeave(false);
 			setSelectedMemberIds(existingChat ? existingChat.participants : [currentUser.id]);
 			setAdminIds(existingChat?.adminIds || [currentUser.id]);
+			setOnlyAdminsCanMessage(Boolean(existingChat?.onlyAdminsCanMessage));
+			setOnlyAdminsCanEdit(Boolean(existingChat?.onlyAdminsCanEdit));
 		}
 	}, [
 		isOpen,
@@ -62108,11 +64984,13 @@ var GroupModal = ({ isOpen, onClose, currentUser, existingChat, onGroupCreated, 
 			if (avatarFile) uploadedPhotoUrl = await uploadMediaFile(`groups/${existingChat?.id || Date.now()}_${avatarFile.name}`, avatarFile, { isImage: true });
 			const finalParticipants = Array.from(/* @__PURE__ */ new Set([currentUser.id, ...selectedMemberIds]));
 			if (isEditing && existingChat) {
-				if (amIGroupAdmin) await chatStore.updateGroup(existingChat.id, {
+				if (amIGroupAdmin || !existingChat.onlyAdminsCanEdit) await chatStore.updateGroup(existingChat.id, {
 					name: name.trim(),
 					description: description.trim(),
-					participants: finalParticipants,
-					adminIds: Array.from(/* @__PURE__ */ new Set([currentUser.id, ...adminIds])),
+					participants: amIGroupAdmin ? finalParticipants : existingChat.participants,
+					adminIds: amIGroupAdmin ? Array.from(/* @__PURE__ */ new Set([currentUser.id, ...adminIds])) : existingChat.adminIds,
+					onlyAdminsCanMessage: amIGroupAdmin ? onlyAdminsCanMessage : existingChat.onlyAdminsCanMessage,
+					onlyAdminsCanEdit: amIGroupAdmin ? onlyAdminsCanEdit : existingChat.onlyAdminsCanEdit,
 					...uploadedPhotoUrl ? { photoUrl: uploadedPhotoUrl } : {}
 				});
 				onClose();
@@ -62206,10 +65084,49 @@ var GroupModal = ({ isOpen, onClose, currentUser, existingChat, onGroupCreated, 
 					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", {
 						value: description,
 						onChange: (e) => setDescription(e.target.value),
-						disabled: !amIGroupAdmin,
+						disabled: !amIGroupAdmin && Boolean(existingChat?.onlyAdminsCanEdit),
 						placeholder: "What is this group about?",
 						className: "w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-500 h-16 disabled:bg-slate-50"
 					})] }),
+					amIGroupAdmin && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200/70 space-y-2.5",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+								className: "text-[11px] font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldCheck, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Admin Member Controls" })]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "flex items-center justify-between text-xs cursor-pointer",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "font-semibold text-slate-800",
+									children: "Only Admins Can Send Messages"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-[10px] text-slate-500",
+									children: "Turn on for announcement-only groups"
+								})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									checked: onlyAdminsCanMessage,
+									onChange: (e) => setOnlyAdminsCanMessage(e.target.checked),
+									className: "w-4 h-4 accent-emerald-600 cursor-pointer"
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "flex items-center justify-between text-xs cursor-pointer pt-1 border-t border-emerald-200/50",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "font-semibold text-slate-800",
+									children: "Only Admins Can Edit Group Info"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-[10px] text-slate-500",
+									children: "Protect name, icon, and description"
+								})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									checked: onlyAdminsCanEdit,
+									onChange: (e) => setOnlyAdminsCanEdit(e.target.checked),
+									className: "w-4 h-4 accent-emerald-600 cursor-pointer"
+								})]
+							})
+						]
+					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 							className: "flex items-center justify-between mb-2",
@@ -62326,515 +65243,6 @@ var GroupModal = ({ isOpen, onClose, currentUser, existingChat, onGroupCreated, 
 		})
 	});
 };
-// node_modules/@capacitor/core/dist/index.js
-/*! Capacitor: https://capacitorjs.com/ - MIT License */
-var ExceptionCode;
-(function(ExceptionCode) {
-	/**
-	* API is not implemented.
-	*
-	* This usually means the API can't be used because it is not implemented for
-	* the current platform.
-	*/
-	ExceptionCode["Unimplemented"] = "UNIMPLEMENTED";
-	/**
-	* API is not available.
-	*
-	* This means the API can't be used right now because:
-	*   - it is currently missing a prerequisite, such as network connectivity
-	*   - it requires a particular platform or browser version
-	*/
-	ExceptionCode["Unavailable"] = "UNAVAILABLE";
-})(ExceptionCode || (ExceptionCode = {}));
-var CapacitorException = class extends Error {
-	constructor(message, code, data) {
-		super(message);
-		this.message = message;
-		this.code = code;
-		this.data = data;
-	}
-};
-var getPlatformId = (win) => {
-	var _a, _b;
-	if (win === null || win === void 0 ? void 0 : win.androidBridge) return "android";
-	else if ((_b = (_a = win === null || win === void 0 ? void 0 : win.webkit) === null || _a === void 0 ? void 0 : _a.messageHandlers) === null || _b === void 0 ? void 0 : _b.bridge) return "ios";
-	else return "web";
-};
-var createCapacitor = (win) => {
-	const capCustomPlatform = win.CapacitorCustomPlatform || null;
-	const cap = win.Capacitor || {};
-	const Plugins = cap.Plugins = cap.Plugins || {};
-	const getPlatform = () => {
-		return capCustomPlatform !== null ? capCustomPlatform.name : getPlatformId(win);
-	};
-	const isNativePlatform = () => getPlatform() !== "web";
-	const isPluginAvailable = (pluginName) => {
-		const plugin = registeredPlugins.get(pluginName);
-		if (plugin === null || plugin === void 0 ? void 0 : plugin.platforms.has(getPlatform())) return true;
-		if (getPluginHeader(pluginName)) return true;
-		return false;
-	};
-	const getPluginHeader = (pluginName) => {
-		var _a;
-		return (_a = cap.PluginHeaders) === null || _a === void 0 ? void 0 : _a.find((h) => h.name === pluginName);
-	};
-	const handleError = (err) => win.console.error(err);
-	const registeredPlugins = /* @__PURE__ */ new Map();
-	const registerPlugin = (pluginName, jsImplementations = {}) => {
-		const registeredPlugin = registeredPlugins.get(pluginName);
-		if (registeredPlugin) {
-			console.warn(`Capacitor plugin "${pluginName}" already registered. Cannot register plugins twice.`);
-			return registeredPlugin.proxy;
-		}
-		const platform = getPlatform();
-		const pluginHeader = getPluginHeader(pluginName);
-		let jsImplementation;
-		const loadPluginImplementation = async () => {
-			if (!jsImplementation && platform in jsImplementations) jsImplementation = typeof jsImplementations[platform] === "function" ? jsImplementation = await jsImplementations[platform]() : jsImplementation = jsImplementations[platform];
-			else if (capCustomPlatform !== null && !jsImplementation && "web" in jsImplementations) jsImplementation = typeof jsImplementations["web"] === "function" ? jsImplementation = await jsImplementations["web"]() : jsImplementation = jsImplementations["web"];
-			return jsImplementation;
-		};
-		const createPluginMethod = (impl, prop) => {
-			var _a, _b;
-			if (pluginHeader) {
-				const methodHeader = pluginHeader === null || pluginHeader === void 0 ? void 0 : pluginHeader.methods.find((m) => prop === m.name);
-				if (methodHeader) {
-					if (methodHeader.rtype === "promise") return (options) => cap.nativePromise(pluginName, prop.toString(), options);
-					else return (options, callback) => cap.nativeCallback(pluginName, prop.toString(), options, callback);
-				} else if (impl) return (_a = impl[prop]) === null || _a === void 0 ? void 0 : _a.bind(impl);
-			} else if (impl) return (_b = impl[prop]) === null || _b === void 0 ? void 0 : _b.bind(impl);
-			else throw new CapacitorException(`"${pluginName}" plugin is not implemented on ${platform}`, ExceptionCode.Unimplemented);
-		};
-		const createPluginMethodWrapper = (prop) => {
-			let remove;
-			const wrapper = (...args) => {
-				const p = loadPluginImplementation().then((impl) => {
-					const fn = createPluginMethod(impl, prop);
-					if (fn) {
-						const p = fn(...args);
-						remove = p === null || p === void 0 ? void 0 : p.remove;
-						return p;
-					} else throw new CapacitorException(`"${pluginName}.${prop}()" is not implemented on ${platform}`, ExceptionCode.Unimplemented);
-				});
-				if (prop === "addListener") p.remove = async () => remove();
-				return p;
-			};
-			wrapper.toString = () => `${prop.toString()}() { [capacitor code] }`;
-			Object.defineProperty(wrapper, "name", {
-				value: prop,
-				writable: false,
-				configurable: false
-			});
-			return wrapper;
-		};
-		const addListener = createPluginMethodWrapper("addListener");
-		const removeListener = createPluginMethodWrapper("removeListener");
-		const addListenerNative = (eventName, callback) => {
-			const call = addListener({ eventName }, callback).then((callbackId) => callbackId);
-			const remove = async () => {
-				const callbackId = await call;
-				await removeListener({
-					eventName,
-					callbackId
-				});
-			};
-			const p = new Promise((resolve) => call.then(() => resolve({ remove })));
-			p.remove = async () => {
-				console.warn(`Using addListener() without 'await' is deprecated.`);
-				await remove();
-			};
-			return p;
-		};
-		const proxy = new Proxy({}, { get(_, prop) {
-			switch (prop) {
-				case "$$typeof": return;
-				case "toJSON": return () => ({});
-				case "addListener": return pluginHeader ? addListenerNative : addListener;
-				case "removeListener": return removeListener;
-				default: return createPluginMethodWrapper(prop);
-			}
-		} });
-		Plugins[pluginName] = proxy;
-		registeredPlugins.set(pluginName, {
-			name: pluginName,
-			proxy,
-			platforms: /* @__PURE__ */ new Set([...Object.keys(jsImplementations), ...pluginHeader ? [platform] : []])
-		});
-		return proxy;
-	};
-	if (!cap.convertFileSrc) cap.convertFileSrc = (filePath) => filePath;
-	cap.getPlatform = getPlatform;
-	cap.handleError = handleError;
-	cap.isNativePlatform = isNativePlatform;
-	cap.isPluginAvailable = isPluginAvailable;
-	cap.registerPlugin = registerPlugin;
-	cap.Exception = CapacitorException;
-	cap.DEBUG = !!cap.DEBUG;
-	cap.isLoggingEnabled = !!cap.isLoggingEnabled;
-	return cap;
-};
-var initCapacitorGlobal = (win) => win.Capacitor = createCapacitor(win);
-var Capacitor = /*#__PURE__*/ initCapacitorGlobal(typeof globalThis !== "undefined" ? globalThis : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : typeof global !== "undefined" ? global : {});
-var registerPlugin = Capacitor.registerPlugin;
-/**
-* Base class web plugins should extend.
-*/
-var WebPlugin = class {
-	constructor() {
-		this.listeners = {};
-		this.retainedEventArguments = {};
-		this.windowListeners = {};
-	}
-	addListener(eventName, listenerFunc) {
-		let firstListener = false;
-		if (!this.listeners[eventName]) {
-			this.listeners[eventName] = [];
-			firstListener = true;
-		}
-		this.listeners[eventName].push(listenerFunc);
-		const windowListener = this.windowListeners[eventName];
-		if (windowListener && !windowListener.registered) this.addWindowListener(windowListener);
-		if (firstListener) this.sendRetainedArgumentsForEvent(eventName);
-		const remove = async () => this.removeListener(eventName, listenerFunc);
-		return Promise.resolve({ remove });
-	}
-	async removeAllListeners() {
-		this.listeners = {};
-		for (const listener in this.windowListeners) this.removeWindowListener(this.windowListeners[listener]);
-		this.windowListeners = {};
-	}
-	notifyListeners(eventName, data, retainUntilConsumed) {
-		const listeners = this.listeners[eventName];
-		if (!listeners) {
-			if (retainUntilConsumed) {
-				let args = this.retainedEventArguments[eventName];
-				if (!args) args = [];
-				args.push(data);
-				this.retainedEventArguments[eventName] = args;
-			}
-			return;
-		}
-		listeners.forEach((listener) => listener(data));
-	}
-	hasListeners(eventName) {
-		var _a;
-		return !!((_a = this.listeners[eventName]) === null || _a === void 0 ? void 0 : _a.length);
-	}
-	registerWindowListener(windowEventName, pluginEventName) {
-		this.windowListeners[pluginEventName] = {
-			registered: false,
-			windowEventName,
-			pluginEventName,
-			handler: (event) => {
-				this.notifyListeners(pluginEventName, event);
-			}
-		};
-	}
-	unimplemented(msg = "not implemented") {
-		return new Capacitor.Exception(msg, ExceptionCode.Unimplemented);
-	}
-	unavailable(msg = "not available") {
-		return new Capacitor.Exception(msg, ExceptionCode.Unavailable);
-	}
-	async removeListener(eventName, listenerFunc) {
-		const listeners = this.listeners[eventName];
-		if (!listeners) return;
-		const index = listeners.indexOf(listenerFunc);
-		if (index !== -1) this.listeners[eventName].splice(index, 1);
-		if (!this.listeners[eventName].length) this.removeWindowListener(this.windowListeners[eventName]);
-	}
-	addWindowListener(handle) {
-		window.addEventListener(handle.windowEventName, handle.handler);
-		handle.registered = true;
-	}
-	removeWindowListener(handle) {
-		if (!handle) return;
-		window.removeEventListener(handle.windowEventName, handle.handler);
-		handle.registered = false;
-	}
-	sendRetainedArgumentsForEvent(eventName) {
-		const args = this.retainedEventArguments[eventName];
-		if (!args) return;
-		delete this.retainedEventArguments[eventName];
-		args.forEach((arg) => {
-			this.notifyListeners(eventName, arg);
-		});
-	}
-};
-/******** END WEB VIEW PLUGIN ********/
-/******** COOKIES PLUGIN ********/
-/**
-* Safely web encode a string value (inspired by js-cookie)
-* @param str The string value to encode
-*/
-var encode = (str) => encodeURIComponent(str).replace(/%(2[346B]|5E|60|7C)/g, decodeURIComponent).replace(/[()]/g, escape);
-/**
-* Safely web decode a string value (inspired by js-cookie)
-* @param str The string value to decode
-*/
-var decode = (str) => str.replace(/(%[\dA-F]{2})+/gi, decodeURIComponent);
-var CapacitorCookiesPluginWeb = class extends WebPlugin {
-	async getCookies() {
-		const cookies = document.cookie;
-		const cookieMap = {};
-		cookies.split(";").forEach((cookie) => {
-			if (cookie.length <= 0) return;
-			let [key, value] = cookie.replace(/=/, "CAP_COOKIE").split("CAP_COOKIE");
-			key = decode(key).trim();
-			value = decode(value).trim();
-			cookieMap[key] = value;
-		});
-		return cookieMap;
-	}
-	async setCookie(options) {
-		try {
-			const encodedKey = encode(options.key);
-			const encodedValue = encode(options.value);
-			const expires = options.expires ? `; expires=${options.expires.replace("expires=", "")}` : "";
-			const path = (options.path || "/").replace("path=", "");
-			const domain = options.url != null && options.url.length > 0 ? `domain=${options.url}` : "";
-			document.cookie = `${encodedKey}=${encodedValue || ""}${expires}; path=${path}; ${domain};`;
-		} catch (error) {
-			return Promise.reject(error);
-		}
-	}
-	async deleteCookie(options) {
-		try {
-			document.cookie = `${options.key}=; Max-Age=0`;
-		} catch (error) {
-			return Promise.reject(error);
-		}
-	}
-	async clearCookies() {
-		try {
-			const cookies = document.cookie.split(";") || [];
-			for (const cookie of cookies) document.cookie = cookie.replace(/^ +/, "").replace(/=.*/, `=;expires=${(/* @__PURE__ */ new Date()).toUTCString()};path=/`);
-		} catch (error) {
-			return Promise.reject(error);
-		}
-	}
-	async clearAllCookies() {
-		try {
-			await this.clearCookies();
-		} catch (error) {
-			return Promise.reject(error);
-		}
-	}
-};
-registerPlugin("CapacitorCookies", { web: () => new CapacitorCookiesPluginWeb() });
-/**
-* Read in a Blob value and return it as a base64 string
-* @param blob The blob value to convert to a base64 string
-*/
-var readBlobAsBase64 = async (blob) => new Promise((resolve, reject) => {
-	const reader = new FileReader();
-	reader.onload = () => {
-		const base64String = reader.result;
-		resolve(base64String.indexOf(",") >= 0 ? base64String.split(",")[1] : base64String);
-	};
-	reader.onerror = (error) => reject(error);
-	reader.readAsDataURL(blob);
-});
-/**
-* Normalize an HttpHeaders map by lowercasing all of the values
-* @param headers The HttpHeaders object to normalize
-*/
-var normalizeHttpHeaders = (headers = {}) => {
-	const originalKeys = Object.keys(headers);
-	return Object.keys(headers).map((k) => k.toLocaleLowerCase()).reduce((acc, key, index) => {
-		acc[key] = headers[originalKeys[index]];
-		return acc;
-	}, {});
-};
-/**
-* Builds a string of url parameters that
-* @param params A map of url parameters
-* @param shouldEncode true if you should encodeURIComponent() the values (true by default)
-*/
-var buildUrlParams = (params, shouldEncode = true) => {
-	if (!params) return null;
-	return Object.entries(params).reduce((accumulator, entry) => {
-		const [key, value] = entry;
-		let encodedValue;
-		let item;
-		if (Array.isArray(value)) {
-			item = "";
-			value.forEach((str) => {
-				encodedValue = shouldEncode ? encodeURIComponent(str) : str;
-				item += `${key}=${encodedValue}&`;
-			});
-			item.slice(0, -1);
-		} else {
-			encodedValue = shouldEncode ? encodeURIComponent(value) : value;
-			item = `${key}=${encodedValue}`;
-		}
-		return `${accumulator}&${item}`;
-	}, "").substr(1);
-};
-/**
-* Build the RequestInit object based on the options passed into the initial request
-* @param options The Http plugin options
-* @param extra Any extra RequestInit values
-*/
-var buildRequestInit = (options, extra = {}) => {
-	const output = Object.assign({
-		method: options.method || "GET",
-		headers: options.headers
-	}, extra);
-	const type = normalizeHttpHeaders(options.headers)["content-type"] || "";
-	if (typeof options.data === "string") output.body = options.data;
-	else if (type.includes("application/x-www-form-urlencoded")) {
-		const params = new URLSearchParams();
-		for (const [key, value] of Object.entries(options.data || {})) params.set(key, value);
-		output.body = params.toString();
-	} else if (type.includes("multipart/form-data") || options.data instanceof FormData) {
-		const form = new FormData();
-		if (options.data instanceof FormData) options.data.forEach((value, key) => {
-			form.append(key, value);
-		});
-		else for (const key of Object.keys(options.data)) form.append(key, options.data[key]);
-		output.body = form;
-		const headers = new Headers(output.headers);
-		headers.delete("content-type");
-		output.headers = headers;
-	} else if (type.includes("application/json") || typeof options.data === "object") output.body = JSON.stringify(options.data);
-	return output;
-};
-var CapacitorHttpPluginWeb = class extends WebPlugin {
-	/**
-	* Perform an Http request given a set of options
-	* @param options Options to build the HTTP request
-	*/
-	async request(options) {
-		const requestInit = buildRequestInit(options, options.webFetchExtra);
-		const urlParams = buildUrlParams(options.params, options.shouldEncodeUrlParams);
-		const url = urlParams ? `${options.url}?${urlParams}` : options.url;
-		const response = await fetch(url, requestInit);
-		const contentType = response.headers.get("content-type") || "";
-		let { responseType = "text" } = response.ok ? options : {};
-		if (contentType.includes("application/json")) responseType = "json";
-		let data;
-		let blob;
-		switch (responseType) {
-			case "arraybuffer":
-			case "blob":
-				blob = await response.blob();
-				data = await readBlobAsBase64(blob);
-				break;
-			case "json":
-				data = await response.json();
-				break;
-			default: data = await response.text();
-		}
-		const headers = {};
-		response.headers.forEach((value, key) => {
-			headers[key] = value;
-		});
-		return {
-			data,
-			headers,
-			status: response.status,
-			url: response.url
-		};
-	}
-	/**
-	* Perform an Http GET request given a set of options
-	* @param options Options to build the HTTP request
-	*/
-	async get(options) {
-		return this.request(Object.assign(Object.assign({}, options), { method: "GET" }));
-	}
-	/**
-	* Perform an Http POST request given a set of options
-	* @param options Options to build the HTTP request
-	*/
-	async post(options) {
-		return this.request(Object.assign(Object.assign({}, options), { method: "POST" }));
-	}
-	/**
-	* Perform an Http PUT request given a set of options
-	* @param options Options to build the HTTP request
-	*/
-	async put(options) {
-		return this.request(Object.assign(Object.assign({}, options), { method: "PUT" }));
-	}
-	/**
-	* Perform an Http PATCH request given a set of options
-	* @param options Options to build the HTTP request
-	*/
-	async patch(options) {
-		return this.request(Object.assign(Object.assign({}, options), { method: "PATCH" }));
-	}
-	/**
-	* Perform an Http DELETE request given a set of options
-	* @param options Options to build the HTTP request
-	*/
-	async delete(options) {
-		return this.request(Object.assign(Object.assign({}, options), { method: "DELETE" }));
-	}
-};
-registerPlugin("CapacitorHttp", { web: () => new CapacitorHttpPluginWeb() });
-/******** END HTTP PLUGIN ********/
-/******** SYSTEM BARS PLUGIN ********/
-/**
-* Available status bar styles.
-*/
-var SystemBarsStyle;
-(function(SystemBarsStyle) {
-	/**
-	* Light system bar content on a dark background.
-	*
-	* @since 8.0.0
-	*/
-	SystemBarsStyle["Dark"] = "DARK";
-	/**
-	* For dark system bar content on a light background.
-	*
-	* @since 8.0.0
-	*/
-	SystemBarsStyle["Light"] = "LIGHT";
-	/**
-	* The style is based on the device appearance or the underlying content.
-	* If the device is using Dark mode, the system bars content will be light.
-	* If the device is using Light mode, the system bars content will be dark.
-	*
-	* @since 8.0.0
-	*/
-	SystemBarsStyle["Default"] = "DEFAULT";
-})(SystemBarsStyle || (SystemBarsStyle = {}));
-/**
-* Available system bar types.
-*/
-var SystemBarType;
-(function(SystemBarType) {
-	/**
-	* The top status bar on both Android and iOS.
-	*
-	* @since 8.0.0
-	*/
-	SystemBarType["StatusBar"] = "StatusBar";
-	/**
-	* The navigation bar (or gesture bar on iOS) on both Android and iOS.
-	*
-	* @since 8.0.0
-	*/
-	SystemBarType["NavigationBar"] = "NavigationBar";
-})(SystemBarType || (SystemBarType = {}));
-var SystemBarsPluginWeb = class extends WebPlugin {
-	async setStyle() {
-		this.unavailable("not available for web");
-	}
-	async setAnimation() {
-		this.unavailable("not available for web");
-	}
-	async show() {
-		this.unavailable("not available for web");
-	}
-	async hide() {
-		this.unavailable("not available for web");
-	}
-};
-registerPlugin("SystemBars", { web: () => new SystemBarsPluginWeb() });
 // src/hooks/usePWAInstall.ts
 function usePWAInstall() {
 	const [deferredPrompt, setDeferredPrompt] = (0, import_react.useState)(null);
@@ -62937,33 +65345,81 @@ var PWAInstallButton = () => {
 // src/components/SettingsModal.tsx
 var SettingsModal = ({ isOpen, onClose, currentUser, onOpenAdmin, onSignOut }) => {
 	const [activeTab, setActiveTab] = (0, import_react.useState)("profile");
+	const [selectedThemeId, setSelectedThemeId] = (0, import_react.useState)(themeService.getThemeId());
 	const [displayName, setDisplayName] = (0, import_react.useState)(currentUser?.displayName || "");
 	const [bio, setBio] = (0, import_react.useState)(currentUser?.bio || "");
 	const [phone, setPhone] = (0, import_react.useState)(currentUser?.phoneNumber || "");
 	const [photoUrl, setPhotoUrl] = (0, import_react.useState)(currentUser?.photoUrl || "");
 	const [isUploadingAvatar, setIsUploadingAvatar] = (0, import_react.useState)(false);
 	const [savedSuccess, setSavedSuccess] = (0, import_react.useState)("");
+	const [appLockOn, setAppLockOn] = (0, import_react.useState)(securityService.isAppLockEnabled());
+	const [biometricOn, setBiometricOn] = (0, import_react.useState)(securityService.isBiometricEnabled());
+	const [hasPin, setHasPin] = (0, import_react.useState)(securityService.hasPin());
+	const [lockedChatIds, setLockedChatIds] = (0, import_react.useState)(securityService.getLockedChatIds());
+	const [bioSupport, setBioSupport] = (0, import_react.useState)({
+		available: false,
+		label: "PIN Lock"
+	});
+	const [newPin, setNewPin] = (0, import_react.useState)("");
+	const [deviceSessions, setDeviceSessions] = (0, import_react.useState)(deviceSessionService.getSessions());
+	const [payMethod, setPayMethod] = (0, import_react.useState)(currentUser?.paymentAccount?.method || "jazzcash");
+	const [payNumber, setPayNumber] = (0, import_react.useState)(currentUser?.paymentAccount?.accountNumber || "");
+	const [payTitle, setPayTitle] = (0, import_react.useState)(currentUser?.paymentAccount?.accountTitle || "");
+	const [transactions, setTransactions] = (0, import_react.useState)(paymentService.getTransactions());
 	const [lastSeen, setLastSeen] = (0, import_react.useState)(currentUser?.privacySettings?.lastSeenVisibility || "everyone");
 	const [readReceipts, setReadReceipts] = (0, import_react.useState)(currentUser?.privacySettings?.readReceipts ?? true);
 	const [profileVisibility, setProfileVisibility] = (0, import_react.useState)(currentUser?.privacySettings?.profilePhotoVisibility || "everyone");
 	const [soundsOn, setSoundsOn] = (0, import_react.useState)(currentUser?.notificationSettings?.messageSounds ?? true);
 	const [ringtonesOn, setRingtonesOn] = (0, import_react.useState)(currentUser?.notificationSettings?.callRingtones ?? true);
 	const [alertsOn, setAlertsOn] = (0, import_react.useState)(currentUser?.notificationSettings?.inAppAlerts ?? true);
+	const [bgRunningOn, setBgRunningOn] = (0, import_react.useState)(notificationService.isBackgroundEnabled());
+	const [permStatus, setPermStatus] = (0, import_react.useState)(null);
 	const fileInputRef = (0, import_react.useRef)(null);
 	const blockedUsers = chatStore.getBlockedUsers();
 	(0, import_react.useEffect)(() => {
-		if (isOpen && currentUser) {
+		if (!isOpen) return;
+		setAppLockOn(securityService.isAppLockEnabled());
+		setBiometricOn(securityService.isBiometricEnabled());
+		setHasPin(securityService.hasPin());
+		setLockedChatIds(securityService.getLockedChatIds());
+		setDeviceSessions(deviceSessionService.getSessions());
+		securityService.checkBiometricSupport().then(setBioSupport).catch(() => {});
+		const unsubSec = securityService.subscribe(() => {
+			setAppLockOn(securityService.isAppLockEnabled());
+			setBiometricOn(securityService.isBiometricEnabled());
+			setHasPin(securityService.hasPin());
+			setLockedChatIds(securityService.getLockedChatIds());
+		});
+		const unsubDev = deviceSessionService.subscribe(() => {
+			setDeviceSessions(deviceSessionService.getSessions());
+		});
+		setTransactions(paymentService.getTransactions());
+		const unsubPay = paymentService.subscribe(() => {
+			setTransactions(paymentService.getTransactions());
+		});
+		if (currentUser) {
 			setDisplayName(currentUser.displayName || "");
 			setBio(currentUser.bio || "");
 			setPhone(currentUser.phoneNumber || "");
 			setPhotoUrl(currentUser.photoUrl || "");
+			setPayMethod(currentUser.paymentAccount?.method || "jazzcash");
+			setPayNumber(currentUser.paymentAccount?.accountNumber || currentUser.phoneNumber || "");
+			setPayTitle(currentUser.paymentAccount?.accountTitle || currentUser.displayName || "");
 			setLastSeen(currentUser.privacySettings?.lastSeenVisibility || "everyone");
 			setReadReceipts(currentUser.privacySettings?.readReceipts ?? true);
 			setProfileVisibility(currentUser.privacySettings?.profilePhotoVisibility || "everyone");
 			setSoundsOn(currentUser.notificationSettings?.messageSounds ?? true);
 			setRingtonesOn(currentUser.notificationSettings?.callRingtones ?? true);
 			setAlertsOn(currentUser.notificationSettings?.inAppAlerts ?? true);
+			setBgRunningOn(notificationService.isBackgroundEnabled());
+			setSelectedThemeId(themeService.getThemeId());
+			notificationService.getPermissionStatus().then(setPermStatus).catch(() => {});
 		}
+		return () => {
+			unsubSec();
+			unsubDev();
+			unsubPay();
+		};
 	}, [isOpen, currentUser]);
 	if (!isOpen) return null;
 	const showSavedToast = (label) => {
@@ -63039,6 +65495,26 @@ var SettingsModal = ({ isOpen, onClose, currentUser, onOpenAdmin, onSignOut }) =
 							icon: User
 						},
 						{
+							id: "theme",
+							label: "Chat Theme",
+							icon: Palette
+						},
+						{
+							id: "security",
+							label: "App & Chat Lock",
+							icon: Fingerprint
+						},
+						{
+							id: "devices",
+							label: "Linked Devices",
+							icon: Laptop
+						},
+						{
+							id: "payments",
+							label: "DOST Pay",
+							icon: Banknote
+						},
+						{
 							id: "privacy",
 							label: "Privacy",
 							icon: Lock
@@ -63058,7 +65534,7 @@ var SettingsModal = ({ isOpen, onClose, currentUser, onOpenAdmin, onSignOut }) =
 						const isActive = activeTab === tab.id;
 						return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 							onClick: () => setActiveTab(tab.id),
-							className: `w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left whitespace-nowrap ${isActive ? "bg-emerald-600 text-white shadow-xs" : "text-slate-600 hover:bg-slate-200/60"}`,
+							className: `shrink-0 md:w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left whitespace-nowrap ${isActive ? "bg-emerald-600 text-white shadow-xs" : "text-slate-600 hover:bg-slate-200/60"}`,
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Icon, { className: "w-4 h-4 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: tab.label })]
 						}, tab.id);
 					})
@@ -63205,6 +65681,434 @@ var SettingsModal = ({ isOpen, onClose, currentUser, onOpenAdmin, onSignOut }) =
 							})
 						]
 					}),
+					activeTab === "theme" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "space-y-4",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+							className: "text-base font-bold text-slate-800 font-['Outfit']",
+							children: "Chat Appearance"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "text-[11px] text-slate-500 mt-0.5",
+							children: "Customize conversation background, header style, and message bubbles"
+						})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "space-y-2.5",
+							children: Object.keys(CHAT_THEMES).map((id) => {
+								const t = CHAT_THEMES[id];
+								const isActive = selectedThemeId === id;
+								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									onClick: () => {
+										themeService.setTheme(id);
+										setSelectedThemeId(id);
+										showSavedToast(`${t.name} theme applied!`);
+									},
+									className: `w-full flex items-center justify-between gap-3 p-3 rounded-2xl border text-left transition-all cursor-pointer ${isActive ? "border-emerald-500 bg-emerald-50/70 ring-1 ring-emerald-500/30" : "border-slate-200/80 hover:bg-slate-50"}`,
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center gap-3 min-w-0",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "w-10 h-10 rounded-xl shrink-0 border border-black/10 flex items-center justify-center relative overflow-hidden",
+											style: { backgroundColor: t.swatchCanvas },
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "w-4.5 h-3 rounded-md shadow-xs translate-x-1 -translate-y-1",
+												style: { backgroundColor: t.swatchPrimary }
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `w-4 h-2.5 rounded-md shadow-xs -translate-x-1 translate-y-1.5 ${t.isDark ? "bg-[#13261D] border border-emerald-400/20" : "bg-white border border-black/10"}` })]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "min-w-0",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+												className: "text-xs font-bold text-slate-800 truncate",
+												children: t.name
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+												className: "text-[11px] text-slate-500 truncate",
+												children: t.subtitle
+											})]
+										})]
+									}), isActive && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0",
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { className: "w-3 h-3" })
+									})]
+								}, id);
+							})
+						})]
+					}),
+					activeTab === "security" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "space-y-4",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+								className: "text-base font-bold text-slate-800 font-['Outfit']",
+								children: "App Lock & Chat Lock"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-[11px] text-slate-500 mt-0.5",
+								children: "Protect DOST and individual chats with Fingerprint, Face ID, or a 4-digit PIN"
+							})] }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
+								onSubmit: async (e) => {
+									e.preventDefault();
+									const clean = newPin.replace(/\D/g, "").slice(0, 4);
+									if (clean.length !== 4) return;
+									await securityService.setPin(clean);
+									setNewPin("");
+									showSavedToast(hasPin ? "4-digit PIN updated!" : "4-digit PIN saved!");
+								},
+								className: "p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+										className: "text-xs font-bold text-slate-800 flex items-center gap-1.5",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(KeyRound, { className: "w-3.5 h-3.5 text-emerald-600" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: hasPin ? "Change 4-Digit Security PIN" : "Set 4-Digit Security PIN" })]
+									}), hasPin && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800",
+										children: "PIN Active"
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center gap-2",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										type: "password",
+										inputMode: "numeric",
+										maxLength: 4,
+										value: newPin,
+										onChange: (e) => setNewPin(e.target.value.replace(/\D/g, "").slice(0, 4)),
+										placeholder: "Enter 4 digits (e.g. 1234)",
+										className: "flex-1 px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:border-emerald-500 font-mono tracking-widest"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "submit",
+										disabled: newPin.length !== 4,
+										className: "px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl cursor-pointer disabled:opacity-50",
+										children: hasPin ? "Update" : "Save PIN"
+									})]
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "space-y-3 divide-y divide-slate-100 text-xs",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "pt-2 flex items-center justify-between gap-3",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "font-semibold text-slate-800",
+										children: "Lock Whole App (App Lock)"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "text-[11px] text-slate-500",
+										children: "Require Fingerprint, Face ID, or PIN whenever opening DOST"
+									})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										type: "checkbox",
+										checked: appLockOn,
+										onChange: async (e) => {
+											const next = e.target.checked;
+											if (next && !hasPin && !bioSupport.available) {
+												showSavedToast("Set a 4-digit PIN above first");
+												return;
+											}
+											securityService.setAppLockEnabled(next);
+											showSavedToast(next ? "App Lock enabled!" : "App Lock disabled");
+										},
+										className: "w-4 h-4 accent-emerald-600 cursor-pointer shrink-0"
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "pt-3 flex items-center justify-between gap-3",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+										className: "font-semibold text-slate-800 flex items-center gap-1.5",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Fingerprint, { className: "w-3.5 h-3.5 text-emerald-600" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: bioSupport.label })]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "text-[11px] text-slate-500",
+										children: bioSupport.available ? "Allow native Fingerprint / Face ID unlock on app & locked chats" : "Enroll biometric or use your 4-digit PIN above"
+									})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										type: "checkbox",
+										checked: biometricOn,
+										onChange: async (e) => {
+											if (e.target.checked) {
+												const res = await securityService.authenticateBiometric({
+													title: "Enable Biometric Lock",
+													subtitle: "Verify your fingerprint or face ID",
+													userLabel: currentUser?.email
+												});
+												if (res.success) {
+													securityService.setBiometricEnabled(true);
+													showSavedToast("Biometric unlock verified!");
+												} else showSavedToast(res.error || "Biometric verification cancelled");
+											} else {
+												securityService.setBiometricEnabled(false);
+												showSavedToast("Biometric unlock turned off");
+											}
+										},
+										className: "w-4 h-4 accent-emerald-600 cursor-pointer shrink-0"
+									})]
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 space-y-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+										className: "text-xs font-bold text-emerald-900",
+										children: [
+											"Locked Chats (",
+											lockedChatIds.length,
+											")"
+										]
+									}), lockedChatIds.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: () => {
+											lockedChatIds.forEach((id) => securityService.unlockChat(id));
+											showSavedToast("All chats unlocked");
+										},
+										className: "text-[11px] font-semibold text-emerald-700 hover:underline cursor-pointer",
+										children: "Unlock All"
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-[11px] text-emerald-800/80 leading-relaxed",
+									children: "You can lock any specific chat from its chat header menu or chat list menu. Locked chats stay hidden under the “Locked” filter tab until unlocked with Fingerprint or PIN."
+								})]
+							})
+						]
+					}),
+					activeTab === "devices" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "space-y-4",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+								className: "text-base font-bold text-slate-800 font-['Outfit']",
+								children: "Linked Devices (Multi-Device)"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-[11px] text-slate-500 mt-0.5",
+								children: "Use the same DOST account simultaneously on your Phone APK, Laptop Web, and Tablet"
+							})] }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200/80 space-y-2",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "text-xs font-bold text-emerald-900",
+										children: "Link Phone, Laptop, or Tablet"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+										className: "text-[11px] text-emerald-800/85 leading-relaxed",
+										children: [
+											"Open DOST on your laptop or tablet browser and sign in with",
+											" ",
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "font-semibold",
+												children: currentUser?.email || "your account"
+											}),
+											". All messages, polls, and groups sync instantly across all devices."
+										]
+									}),
+									typeof window !== "undefined" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center gap-2 pt-1",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", {
+											className: "flex-1 px-2.5 py-1.5 rounded-xl bg-white border border-emerald-200 text-[10px] text-slate-700 truncate font-mono",
+											children: window.location.origin
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+											type: "button",
+											onClick: () => {
+												navigator.clipboard?.writeText(window.location.origin);
+												showSavedToast("DOST Web link copied!");
+											},
+											className: "px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold rounded-xl flex items-center gap-1 cursor-pointer shrink-0",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Copy, { className: "w-3 h-3" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Copy Link" })]
+										})]
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "space-y-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+									className: "text-xs font-bold text-slate-700",
+									children: [
+										"Active Sessions (",
+										deviceSessions.length,
+										")"
+									]
+								}), deviceSessions.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-xs text-slate-400",
+									children: "Sign in to track connected devices in real time."
+								}) : deviceSessions.map((sess) => {
+									const isCurrent = sess.deviceId === deviceSessionService.getCurrentDeviceId();
+									const DevIcon = sess.platform === "tablet" ? Tablet : sess.platform === "desktop" ? Laptop : Smartphone;
+									return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: `flex items-center justify-between gap-3 p-3 rounded-2xl border ${isCurrent ? "border-emerald-400 bg-emerald-50/50" : "border-slate-200/80 bg-white"}`,
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center gap-3 min-w-0",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+												className: "w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0",
+												children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DevIcon, { className: "w-4 h-4" })
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "min-w-0",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex items-center gap-1.5",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+														className: "text-xs font-bold text-slate-800 truncate",
+														children: sess.deviceName
+													}), isCurrent && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+														className: "text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-600 text-white",
+														children: "This Device"
+													})]
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+													className: "text-[10px] text-slate-500 truncate",
+													children: [
+														sess.browserInfo,
+														" · Last active",
+														" ",
+														new Date(sess.lastActive).toLocaleTimeString([], {
+															hour: "2-digit",
+															minute: "2-digit"
+														})
+													]
+												})]
+											})]
+										}), !isCurrent && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+											type: "button",
+											onClick: async () => {
+												await deviceSessionService.revokeDeviceSession(sess.id);
+												showSavedToast(`Signed out ${sess.deviceName}`);
+											},
+											className: "px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-[11px] font-semibold flex items-center gap-1 cursor-pointer shrink-0",
+											title: "Log out this device remotely",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(LogOut, { className: "w-3 h-3" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Log Out" })]
+										})]
+									}, sess.id);
+								})]
+							})
+						]
+					}),
+					activeTab === "payments" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "space-y-4",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+								className: "text-base font-bold text-slate-800 font-['Outfit']",
+								children: "DOST Pay · In-Chat Payments"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-[11px] text-slate-500 mt-0.5",
+								children: "Save your JazzCash, Easypaisa, SadaPay, NayaPay, or Raast IBAN so friends can pay you directly inside chat"
+							})] }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
+								onSubmit: async (e) => {
+									e.preventDefault();
+									if (!payNumber.trim()) return;
+									await chatStore.updateProfile({ paymentAccount: {
+										method: payMethod,
+										accountNumber: payNumber.trim(),
+										accountTitle: payTitle.trim() || currentUser?.displayName || "DOST User",
+										updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+									} });
+									showSavedToast("Receiving account saved!");
+								},
+								className: "p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "grid grid-cols-2 sm:grid-cols-3 gap-1.5",
+										children: Object.keys(PAYMENT_RAILS).map((id) => {
+											const rail = PAYMENT_RAILS[id];
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+												type: "button",
+												onClick: () => setPayMethod(id),
+												className: `py-2 px-2 rounded-xl border text-[11px] font-bold transition-colors cursor-pointer truncate ${payMethod === id ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`,
+												children: rail.name
+											}, id);
+										})
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "grid grid-cols-1 sm:grid-cols-2 gap-2",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+											className: "block text-[11px] font-semibold text-slate-600 mb-1",
+											children: "Account Number / IBAN"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											type: "text",
+											value: payNumber,
+											onChange: (e) => setPayNumber(e.target.value),
+											placeholder: PAYMENT_RAILS[payMethod].placeholder,
+											className: "w-full px-3 py-2 text-xs font-mono bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500",
+											required: true
+										})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+											className: "block text-[11px] font-semibold text-slate-600 mb-1",
+											children: "Account Holder Title"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											type: "text",
+											value: payTitle,
+											onChange: (e) => setPayTitle(e.target.value),
+											placeholder: currentUser?.displayName || "Full Name",
+											className: "w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+										})] })]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "submit",
+										className: "w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer",
+										children: "Save Receiving Wallet"
+									})
+								]
+							}),
+							(() => {
+								const myUid = currentUser?.id;
+								const sentTotal = transactions.filter((t) => t.senderId === myUid && (t.status === "completed" || t.status === "sent") && t.kind === "send").reduce((s, t) => s + t.amount, 0);
+								const receivedTotal = transactions.filter((t) => t.receiverId === myUid && t.status === "completed").reduce((s, t) => s + t.amount, 0);
+								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "grid grid-cols-2 gap-2.5",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200/80",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "text-[11px] text-emerald-800 font-semibold",
+											children: "Total Sent"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "text-base font-extrabold font-mono tabular-nums text-emerald-950 mt-0.5",
+											children: formatPKR(sentTotal)
+										})]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "p-3 rounded-2xl bg-slate-50 border border-slate-200/80",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "text-[11px] text-slate-600 font-semibold",
+											children: "Total Received"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "text-base font-extrabold font-mono tabular-nums text-slate-900 mt-0.5",
+											children: formatPKR(receivedTotal)
+										})]
+									})]
+								});
+							})(),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "space-y-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+									className: "text-xs font-bold text-slate-700",
+									children: [
+										"Recent Chat Payments (",
+										transactions.length,
+										")"
+									]
+								}), transactions.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-xs text-slate-400",
+									children: "Open any chat and tap Attach → DOST Pay to send or request money."
+								}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "space-y-1.5 max-h-52 overflow-y-auto pr-1",
+									children: transactions.map((tx) => {
+										const isOutgoing = tx.senderId === currentUser?.id && tx.kind === "send" || tx.receiverId === currentUser?.id && tx.kind === "request";
+										const peerName = tx.senderId === currentUser?.id ? tx.receiverName : tx.senderName;
+										return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center justify-between gap-2 p-2.5 rounded-xl border border-slate-200/80 bg-white text-xs",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex items-center gap-2.5 min-w-0",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: `w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isOutgoing ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-700"}`,
+													children: isOutgoing ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowUpRight, { className: "w-4 h-4" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowDownLeft, { className: "w-4 h-4" })
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "min-w-0",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+														className: "font-bold text-slate-800 truncate",
+														children: peerName
+													}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+														className: "text-[10px] text-slate-500 truncate",
+														children: [
+															PAYMENT_RAILS[tx.method]?.name || tx.method,
+															" · ",
+															tx.status,
+															" ·",
+															" ",
+															tx.referenceId || tx.id.slice(0, 8)
+														]
+													})]
+												})]
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+												className: `font-extrabold font-mono tabular-nums shrink-0 ${isOutgoing ? "text-slate-800" : "text-emerald-700"}`,
+												children: [isOutgoing ? "-" : "+", formatPKR(tx.amount)]
+											})]
+										}, tx.id);
+									})
+								})]
+							})
+						]
+					}),
 					activeTab === "privacy" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "space-y-4",
 						children: [
@@ -63319,59 +66223,128 @@ var SettingsModal = ({ isOpen, onClose, currentUser, onOpenAdmin, onSignOut }) =
 					}),
 					activeTab === "notifications" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "space-y-4",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
-							className: "text-base font-bold text-slate-800 font-['Outfit']",
-							children: "Notification Preferences"
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "space-y-3 divide-y divide-slate-100 text-xs",
-							children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "pt-2 flex items-center justify-between",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-										className: "font-semibold text-slate-800",
-										children: "Message Sounds"
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-										className: "text-[11px] text-slate-500",
-										children: "Play tone for sent and incoming messages"
-									})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-										type: "checkbox",
-										checked: soundsOn,
-										onChange: (e) => handleSaveNotifications({ messageSounds: e.target.checked }),
-										className: "w-4 h-4 accent-emerald-600 cursor-pointer"
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+								className: "text-base font-bold text-slate-800 font-['Outfit']",
+								children: "Notification Preferences"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "space-y-3 divide-y divide-slate-100 text-xs",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "pt-2 flex items-center justify-between",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "font-semibold text-slate-800",
+											children: "Message Sounds"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "text-[11px] text-slate-500",
+											children: "Play tone for sent and incoming messages"
+										})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											type: "checkbox",
+											checked: soundsOn,
+											onChange: (e) => handleSaveNotifications({ messageSounds: e.target.checked }),
+											className: "w-4 h-4 accent-emerald-600 cursor-pointer"
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "pt-3 flex items-center justify-between",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "font-semibold text-slate-800",
+											children: "Call Ringtones"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "text-[11px] text-slate-500",
+											children: "Play ringtone on incoming WebRTC calls"
+										})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											type: "checkbox",
+											checked: ringtonesOn,
+											onChange: (e) => handleSaveNotifications({ callRingtones: e.target.checked }),
+											className: "w-4 h-4 accent-emerald-600 cursor-pointer"
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "pt-3 flex items-center justify-between",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "font-semibold text-slate-800",
+											children: "Phone Screen & In-App Alerts"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "text-[11px] text-slate-500",
+											children: "Show heads-up popup notifications on screen for messages & calls"
+										})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											type: "checkbox",
+											checked: alertsOn,
+											onChange: (e) => handleSaveNotifications({ inAppAlerts: e.target.checked }),
+											className: "w-4 h-4 accent-emerald-600 cursor-pointer"
+										})]
+									}),
+									Capacitor.isNativePlatform() && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "pt-3 flex items-center justify-between",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+											className: "font-semibold text-slate-800 flex items-center gap-1.5",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Radio, { className: "w-3.5 h-3.5 text-emerald-600" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Background Running Process" })]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "text-[11px] text-slate-500",
+											children: "Keeps DOST alive in background so calls & messages arrive instantly"
+										})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											type: "checkbox",
+											checked: bgRunningOn,
+											onChange: async (e) => {
+												const next = e.target.checked;
+												setBgRunningOn(next);
+												await notificationService.setBackgroundEnabled(next);
+												showSavedToast(next ? "Background service started!" : "Background service stopped");
+											},
+											className: "w-4 h-4 accent-emerald-600 cursor-pointer"
+										})]
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "mt-4 p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200/80 space-y-2.5",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between text-xs",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "font-bold text-emerald-900",
+										children: "Phone Permissions & Alert Test"
+									}), permStatus && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white text-emerald-700 border border-emerald-200",
+										children: permStatus.notifications ? "Alerts Allowed" : "Permission Needed"
 									})]
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "pt-3 flex items-center justify-between",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-										className: "font-semibold text-slate-800",
-										children: "Call Ringtones"
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-										className: "text-[11px] text-slate-500",
-										children: "Play ringtone on incoming WebRTC calls"
-									})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-										type: "checkbox",
-										checked: ringtonesOn,
-										onChange: (e) => handleSaveNotifications({ callRingtones: e.target.checked }),
-										className: "w-4 h-4 accent-emerald-600 cursor-pointer"
-									})]
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "pt-3 flex items-center justify-between",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-										className: "font-semibold text-slate-800",
-										children: "In-App Alerts"
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-										className: "text-[11px] text-slate-500",
-										children: "Display alert banner when notifications arrive"
-									})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-										type: "checkbox",
-										checked: alertsOn,
-										onChange: (e) => handleSaveNotifications({ inAppAlerts: e.target.checked }),
-										className: "w-4 h-4 accent-emerald-600 cursor-pointer"
-									})]
-								})
-							]
-						})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex flex-wrap gap-2",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: async () => {
+												const status = await notificationService.requestPermissions();
+												setPermStatus(status);
+												await notificationService.startBackgroundService();
+												showSavedToast("Permissions & background alerts updated!");
+											},
+											className: "px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold rounded-xl cursor-pointer transition-colors",
+											children: "Allow Alerts, Mic & Camera"
+										}),
+										Capacitor.isNativePlatform() && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+											type: "button",
+											onClick: async () => {
+												const status = await notificationService.requestBatteryUnrestricted();
+												setPermStatus(status);
+											},
+											className: "px-3 py-1.5 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] font-semibold rounded-xl inline-flex items-center gap-1 cursor-pointer transition-colors",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(BatteryCharging, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: permStatus?.batteryUnrestricted ? "Battery Unrestricted OK" : "Allow Background Battery" })]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: async () => {
+												await notificationService.sendTestNotification();
+												showSavedToast("Test alert sent!");
+											},
+											className: "px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-[11px] font-semibold rounded-xl cursor-pointer transition-colors",
+											children: "Send Test Alert"
+										})
+									]
+								})]
+							})
+						]
 					}),
 					activeTab === "about" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "text-center py-2 space-y-4",
@@ -63779,8 +66752,565 @@ var NotificationsModal = ({ isOpen, onClose, onOpenChat }) => {
 		})
 	});
 };
-// node_modules/@capacitor/app/dist/esm/index.js
-var App$1 = registerPlugin("App", { web: () => __vitePreload(() => import("./web-BI88a_PT.js").then((m) => new m.AppWeb()), []) });
+// src/components/LockScreenModal.tsx
+var LockScreenModal = ({ isOpen, mode, title, subtitle, userLabel, onUnlocked, onCancel }) => {
+	const [pin, setPin] = (0, import_react.useState)("");
+	const [errorMsg, setErrorMsg] = (0, import_react.useState)("");
+	const [biometricLabel, setBiometricLabel] = (0, import_react.useState)("Fingerprint / Face ID");
+	const [biometricAvailable, setBiometricAvailable] = (0, import_react.useState)(false);
+	const [isPrompting, setIsPrompting] = (0, import_react.useState)(false);
+	const hasPin = securityService.hasPin();
+	const bioEnabled = securityService.isBiometricEnabled();
+	const triggerBiometric = (0, import_react.useCallback)(async () => {
+		if (isPrompting) return;
+		setIsPrompting(true);
+		setErrorMsg("");
+		try {
+			const res = await securityService.authenticateBiometric({
+				title: title || (mode === "app" ? "Unlock DOST" : "Unlock Locked Chat"),
+				subtitle: subtitle || "Verify your fingerprint, face ID, or device lock",
+				userLabel
+			});
+			if (res.success) {
+				setPin("");
+				onUnlocked();
+			} else if (res.error) setErrorMsg(hasPin ? "Use your 4-digit PIN or tap Biometric again." : res.error);
+		} finally {
+			setIsPrompting(false);
+		}
+	}, [
+		hasPin,
+		isPrompting,
+		mode,
+		onUnlocked,
+		subtitle,
+		title,
+		userLabel
+	]);
+	(0, import_react.useEffect)(() => {
+		if (!isOpen) {
+			setPin("");
+			setErrorMsg("");
+			return;
+		}
+		let mounted = true;
+		securityService.checkBiometricSupport().then((info) => {
+			if (!mounted) return;
+			setBiometricAvailable(info.available);
+			setBiometricLabel(info.label);
+			if (bioEnabled && info.available) triggerBiometric();
+		});
+		return () => {
+			mounted = false;
+		};
+	}, [isOpen]);
+	if (!isOpen) return null;
+	const handleDigit = async (digit) => {
+		if (pin.length >= 4) return;
+		const next = pin + digit;
+		setPin(next);
+		setErrorMsg("");
+		if (next.length === 4) {
+			if (await securityService.verifyPin(next)) {
+				setPin("");
+				onUnlocked();
+			} else {
+				setErrorMsg("Incorrect PIN. Please try again.");
+				window.setTimeout(() => setPin(""), 250);
+			}
+		}
+	};
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "fixed inset-0 z-[70] flex flex-col items-center justify-between bg-[#062415] text-white px-6 py-8 select-none",
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "w-full max-w-sm flex items-center justify-between",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldCheck, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "DOST Security Lock" })]
+				}), mode === "chat" && onCancel && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+					type: "button",
+					onClick: onCancel,
+					className: "p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white cursor-pointer",
+					"aria-label": "Close",
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { className: "w-5 h-5" })
+				})]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "w-full max-w-xs flex flex-col items-center text-center my-auto",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "w-16 h-16 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center mb-4",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { className: "w-8 h-8 text-emerald-300" })
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+						className: "text-xl font-bold font-['Outfit'] text-white",
+						children: title || (mode === "app" ? "DOST is Locked" : "Locked Chat")
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "text-xs text-emerald-100/75 mt-1 mb-6",
+						children: subtitle || (hasPin ? "Enter your 4-digit PIN or use Biometric unlock" : "Verify with Fingerprint / Face ID")
+					}),
+					hasPin && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "flex items-center gap-4 mb-4",
+						children: [
+							0,
+							1,
+							2,
+							3
+						].map((idx) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `w-3.5 h-3.5 rounded-full transition-all ${idx < pin.length ? "bg-emerald-400 scale-110" : "bg-white/20 border border-white/25"}` }, idx))
+					}),
+					errorMsg && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "text-xs font-medium text-rose-300 mb-3 min-h-[18px]",
+						children: errorMsg
+					}),
+					hasPin ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "grid grid-cols-3 gap-3.5 w-full max-w-[260px] mt-2",
+						children: [
+							[
+								"1",
+								"2",
+								"3",
+								"4",
+								"5",
+								"6",
+								"7",
+								"8",
+								"9"
+							].map((d) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => void handleDigit(d),
+								className: "h-14 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 text-lg font-bold font-['Outfit'] transition-all cursor-pointer",
+								children: d
+							}, d)),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => void triggerBiometric(),
+								disabled: !bioEnabled && !biometricAvailable,
+								className: "h-14 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 active:scale-95 flex items-center justify-center text-emerald-300 disabled:opacity-35 transition-all cursor-pointer",
+								title: biometricLabel,
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Fingerprint, { className: "w-6 h-6" })
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => void handleDigit("0"),
+								className: "h-14 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 text-lg font-bold font-['Outfit'] transition-all cursor-pointer",
+								children: "0"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => setPin((p) => p.slice(0, -1)),
+								className: "h-14 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 flex items-center justify-center text-emerald-100 transition-all cursor-pointer",
+								title: "Backspace",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Delete, { className: "w-5 h-5" })
+							})
+						]
+					}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						type: "button",
+						onClick: () => void triggerBiometric(),
+						className: "mt-2 px-6 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm flex items-center gap-2.5 shadow-lg cursor-pointer transition-all active:scale-95",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Fingerprint, { className: "w-5 h-5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["Unlock with ", biometricLabel] })]
+					})
+				]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "text-[11px] text-emerald-200/60 tracking-wide",
+				children: "DOST Protected · Developed by Husnain Butt"
+			})
+		]
+	});
+};
+// src/components/ChannelsBroadcastModal.tsx
+var ChannelsBroadcastModal = ({ isOpen, onClose, currentUser, onOpenChat }) => {
+	const [tab, setTab] = (0, import_react.useState)("discover");
+	const [publicChannels, setPublicChannels] = (0, import_react.useState)(chatStore.getPublicChannels());
+	const [searchQuery, setSearchQuery] = (0, import_react.useState)("");
+	const [channelName, setChannelName] = (0, import_react.useState)("");
+	const [channelDesc, setChannelDesc] = (0, import_react.useState)("");
+	const [isPublicChannel, setIsPublicChannel] = (0, import_react.useState)(true);
+	const [channelAvatarFile, setChannelAvatarFile] = (0, import_react.useState)(null);
+	const [channelPhotoPreview, setChannelPhotoPreview] = (0, import_react.useState)("");
+	const [broadcastName, setBroadcastName] = (0, import_react.useState)("");
+	const [selectedRecipients, setSelectedRecipients] = (0, import_react.useState)([]);
+	const [recipientSearch, setRecipientSearch] = (0, import_react.useState)("");
+	const [isSaving, setIsSaving] = (0, import_react.useState)(false);
+	(0, import_react.useEffect)(() => {
+		if (!isOpen) return;
+		setPublicChannels(chatStore.getPublicChannels());
+		return chatStore.subscribe(() => {
+			setPublicChannels(chatStore.getPublicChannels());
+		});
+	}, [isOpen]);
+	if (!isOpen) return null;
+	const allOtherUsers = chatStore.getUsers().filter((u) => u.id !== currentUser.id).filter((u) => {
+		if (!recipientSearch.trim()) return true;
+		const q = recipientSearch.trim().toLowerCase();
+		return (u.displayName || "").toLowerCase().includes(q) || (u.email || "").toLowerCase().includes(q);
+	});
+	const filteredChannels = publicChannels.filter((c) => {
+		if (!searchQuery.trim()) return true;
+		const q = searchQuery.trim().toLowerCase();
+		return (c.name || "").toLowerCase().includes(q) || (c.description || "").toLowerCase().includes(q);
+	});
+	const handleCreateChannel = async (e) => {
+		e.preventDefault();
+		if (!channelName.trim()) return;
+		setIsSaving(true);
+		try {
+			let uploadedUrl;
+			if (channelAvatarFile) uploadedUrl = await uploadMediaFile(`channels/${Date.now()}_${channelAvatarFile.name}`, channelAvatarFile, { isImage: true });
+			const created = await chatStore.createChannel(channelName.trim(), channelDesc.trim(), isPublicChannel, uploadedUrl);
+			setChannelName("");
+			setChannelDesc("");
+			setChannelAvatarFile(null);
+			setChannelPhotoPreview("");
+			onOpenChat(created);
+			onClose();
+		} finally {
+			setIsSaving(false);
+		}
+	};
+	const handleCreateBroadcast = async (e) => {
+		e.preventDefault();
+		if (!broadcastName.trim() || selectedRecipients.length === 0) return;
+		setIsSaving(true);
+		try {
+			const created = await chatStore.createBroadcastList(broadcastName.trim(), selectedRecipients);
+			setBroadcastName("");
+			setSelectedRecipients([]);
+			onOpenChat(created);
+			onClose();
+		} finally {
+			setIsSaving(false);
+		}
+	};
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		className: "fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[88vh]",
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "bg-gradient-to-r from-[#064E29] via-[#0B8043] to-[#0FA958] p-5 text-white flex items-center justify-between shrink-0",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-center gap-3",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Megaphone, { className: "w-5 h-5 text-white" })
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+							className: "text-base font-bold font-['Outfit']",
+							children: "Channels & Broadcasts"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "text-[11px] text-emerald-100",
+							children: "Reach unlimited followers or message multiple contacts at once"
+						})] })]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						onClick: onClose,
+						className: "p-1.5 hover:bg-white/15 rounded-xl cursor-pointer",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { className: "w-5 h-5" })
+					})]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "px-4 pt-3 pb-2 border-b border-slate-100 flex gap-1.5 overflow-x-auto shrink-0",
+					children: [
+						{
+							id: "discover",
+							label: "Explore Channels",
+							icon: Globe
+						},
+						{
+							id: "create_channel",
+							label: "New Channel",
+							icon: Plus
+						},
+						{
+							id: "create_broadcast",
+							label: "Broadcast List",
+							icon: Radio
+						}
+					].map((item) => {
+						const Icon = item.icon;
+						const active = tab === item.id;
+						return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							type: "button",
+							onClick: () => setTab(item.id),
+							className: `px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors ${active ? "bg-emerald-600 text-white shadow-xs" : "bg-slate-100 text-slate-600 hover:bg-slate-200/70"}`,
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Icon, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: item.label })]
+						}, item.id);
+					})
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "flex-1 overflow-y-auto p-5",
+					children: [
+						tab === "discover" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "space-y-3",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "relative",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Search, { className: "absolute left-3 top-2.5 w-4 h-4 text-slate-400" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "text",
+									value: searchQuery,
+									onChange: (e) => setSearchQuery(e.target.value),
+									placeholder: "Search public DOST channels...",
+									className: "w-full pl-9 pr-3 py-2 bg-slate-100 rounded-xl text-xs focus:outline-none focus:bg-white border border-transparent focus:border-emerald-500"
+								})]
+							}), filteredChannels.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "text-center py-10 text-slate-400 space-y-2",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Megaphone, { className: "w-10 h-10 mx-auto text-slate-300 stroke-1" }),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "text-xs font-medium",
+										children: "No public channels found yet."
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: () => setTab("create_channel"),
+										className: "text-xs font-semibold text-emerald-700 hover:underline cursor-pointer",
+										children: "Create the first DOST Channel"
+									})
+								]
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "space-y-2",
+								children: filteredChannels.map((ch) => {
+									const isJoined = ch.participants.includes(currentUser.id);
+									return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center justify-between gap-3 p-3 rounded-2xl border border-slate-200/80 hover:bg-slate-50",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											onClick: async () => {
+												if (!isJoined) await chatStore.joinChannel(ch.id);
+												onOpenChat(ch);
+												onClose();
+											},
+											className: "flex items-center gap-3 min-w-0 flex-1 cursor-pointer",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+												src: ch.photoUrl || "/assets/aistudio/download_7eb2aac4.jpeg",
+												alt: ch.name,
+												className: "w-11 h-11 rounded-2xl object-cover border border-slate-200 shrink-0"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "min-w-0",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+													className: "text-sm font-bold text-slate-800 truncate",
+													children: ch.name
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+													className: "text-[11px] text-slate-500 truncate",
+													children: [
+														ch.participants.length,
+														" follower",
+														ch.participants.length === 1 ? "" : "s",
+														" ·",
+														" ",
+														ch.description || "Announcement channel"
+													]
+												})]
+											})]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: async () => {
+												if (isJoined) {
+													onOpenChat(ch);
+													onClose();
+												} else {
+													await chatStore.joinChannel(ch.id);
+													onOpenChat(ch);
+													onClose();
+												}
+											},
+											className: `px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 cursor-pointer transition-colors ${isJoined ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200" : "bg-emerald-600 text-white hover:bg-emerald-700"}`,
+											children: isJoined ? "Open" : "Follow"
+										})]
+									}, ch.id);
+								})
+							})]
+						}),
+						tab === "create_channel" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
+							onSubmit: handleCreateChannel,
+							className: "space-y-4",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center gap-3",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+										className: "relative cursor-pointer shrink-0",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+												src: channelPhotoPreview || "/assets/aistudio/download_7eb2aac4.jpeg",
+												alt: "Channel Icon",
+												className: "w-14 h-14 rounded-2xl object-cover border border-emerald-200"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-600 text-white rounded-full flex items-center justify-center border-2 border-white",
+												children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Camera, { className: "w-3 h-3" })
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "file",
+												accept: "image/*",
+												onChange: (e) => {
+													const f = e.target.files?.[0];
+													if (f) {
+														setChannelAvatarFile(f);
+														setChannelPhotoPreview(URL.createObjectURL(f));
+													}
+												},
+												className: "hidden"
+											})
+										]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex-1",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+											className: "block text-xs font-semibold text-slate-700 mb-1",
+											children: "Channel Name"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											type: "text",
+											value: channelName,
+											onChange: (e) => setChannelName(e.target.value),
+											placeholder: "e.g. Tech Updates Pakistan",
+											className: "w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-500",
+											required: true
+										})]
+									})]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+									className: "block text-xs font-semibold text-slate-700 mb-1",
+									children: "Description & Purpose"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", {
+									value: channelDesc,
+									onChange: (e) => setChannelDesc(e.target.value),
+									placeholder: "Share announcements, polls, photos, and news with followers...",
+									className: "w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-500 h-20"
+								})] }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "grid grid-cols-2 gap-2.5",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+										type: "button",
+										onClick: () => setIsPublicChannel(true),
+										className: `p-3 rounded-2xl border text-left cursor-pointer transition-all ${isPublicChannel ? "border-emerald-500 bg-emerald-50/70" : "border-slate-200 hover:bg-slate-50"}`,
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Globe, { className: "w-4 h-4 text-emerald-600 mb-1" }),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+												className: "text-xs font-bold text-slate-800",
+												children: "Public Channel"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+												className: "text-[10px] text-slate-500",
+												children: "Anyone on DOST can discover & follow"
+											})
+										]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+										type: "button",
+										onClick: () => setIsPublicChannel(false),
+										className: `p-3 rounded-2xl border text-left cursor-pointer transition-all ${!isPublicChannel ? "border-emerald-500 bg-emerald-50/70" : "border-slate-200 hover:bg-slate-50"}`,
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { className: "w-4 h-4 text-emerald-600 mb-1" }),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+												className: "text-xs font-bold text-slate-800",
+												children: "Private Channel"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+												className: "text-[10px] text-slate-500",
+												children: "Only admins & invited members"
+											})
+										]
+									})]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "submit",
+									disabled: isSaving || !channelName.trim(),
+									className: "w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60",
+									children: [isSaving && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LoaderCircle, { className: "w-4 h-4 animate-spin" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Create Channel" })]
+								})
+							]
+						}),
+						tab === "create_broadcast" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
+							onSubmit: handleCreateBroadcast,
+							className: "space-y-4",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+										className: "block text-xs font-semibold text-slate-700 mb-1",
+										children: "Broadcast List Name"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										type: "text",
+										value: broadcastName,
+										onChange: (e) => setBroadcastName(e.target.value),
+										placeholder: "e.g. Family & Clients Announcement",
+										className: "w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-500",
+										required: true
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "text-[11px] text-slate-400 mt-1",
+										children: "Messages sent in a broadcast list are delivered directly to every selected recipient's private chat."
+									})
+								] }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "flex items-center justify-between mb-1.5",
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+											className: "text-xs font-semibold text-slate-700 flex items-center gap-1",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Users, { className: "w-3.5 h-3.5 text-emerald-600" }),
+												"Select Recipients (",
+												selectedRecipients.length,
+												")"
+											]
+										})
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "relative mb-2",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Search, { className: "absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											type: "text",
+											value: recipientSearch,
+											onChange: (e) => setRecipientSearch(e.target.value),
+											placeholder: "Search registered contacts...",
+											className: "w-full pl-8 pr-3 py-2 text-xs bg-slate-50 rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-500"
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "space-y-1.5 max-h-48 overflow-y-auto pr-1",
+										children: allOtherUsers.map((u) => {
+											const checked = selectedRecipients.includes(u.id);
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												onClick: () => setSelectedRecipients((prev) => checked ? prev.filter((id) => id !== u.id) : [...prev, u.id]),
+												className: `flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all ${checked ? "border-emerald-500 bg-emerald-50/60" : "border-slate-100 hover:bg-slate-50"}`,
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex items-center gap-2.5 min-w-0",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+														src: u.photoUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.id}`,
+														alt: u.displayName,
+														className: "w-8 h-8 rounded-full object-cover"
+													}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "min-w-0",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+															className: "text-xs font-semibold text-slate-800 truncate",
+															children: u.displayName
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+															className: "text-[10px] text-slate-400 truncate",
+															children: u.email
+														})]
+													})]
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: `w-5 h-5 rounded-md flex items-center justify-center ${checked ? "bg-emerald-600 text-white" : "border border-slate-300"}`,
+													children: checked && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { className: "w-3.5 h-3.5" })
+												})]
+											}, u.id);
+										})
+									})
+								] }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "submit",
+									disabled: isSaving || !broadcastName.trim() || selectedRecipients.length === 0,
+									className: "w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60",
+									children: [isSaving && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LoaderCircle, { className: "w-4 h-4 animate-spin" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+										"Create Broadcast List (",
+										selectedRecipients.length,
+										")"
+									] })]
+								})
+							]
+						})
+					]
+				})
+			]
+		})
+	});
+};
 // src/App.tsx
 function App() {
 	const [showSplash, setShowSplash] = (0, import_react.useState)(true);
@@ -63796,14 +67326,27 @@ function App() {
 	const [toastMsg, setToastMsg] = (0, import_react.useState)(null);
 	const [isAuthOpen, setIsAuthOpen] = (0, import_react.useState)(false);
 	const [isGroupOpen, setIsGroupOpen] = (0, import_react.useState)(false);
+	const [isChannelsOpen, setIsChannelsOpen] = (0, import_react.useState)(false);
 	const [isSettingsOpen, setIsSettingsOpen] = (0, import_react.useState)(false);
 	const [isAdminOpen, setIsAdminOpen] = (0, import_react.useState)(false);
 	const [isNotificationsOpen, setIsNotificationsOpen] = (0, import_react.useState)(false);
 	const [unreadNotificationsCount, setUnreadNotificationsCount] = (0, import_react.useState)(chatStore.getUnreadNotificationsCount());
 	const [groupToEdit, setGroupToEdit] = (0, import_react.useState)(null);
+	const [isAppLocked, setIsAppLocked] = (0, import_react.useState)(() => securityService.isAppLockEnabled());
+	const [pendingUnlockChat, setPendingUnlockChat] = (0, import_react.useState)(null);
+	const hiddenAtRef = (0, import_react.useRef)(null);
+	const lastUnlockedAtRef = (0, import_react.useRef)(0);
 	const showToast = (msg) => {
 		setToastMsg(msg);
 		setTimeout(() => setToastMsg(null), 3500);
+	};
+	const openChatWithLockGuard = (target, switchToChatsTab = false) => {
+		if (switchToChatsTab) setCurrentTab("chats");
+		if (securityService.isChatLocked(target.id)) {
+			setPendingUnlockChat(target);
+			return;
+		}
+		setActiveChat(target);
 	};
 	(0, import_react.useEffect)(() => {
 		testConnection();
@@ -63814,11 +67357,19 @@ function App() {
 				chatStore.setCurrentUser(profile);
 				setCurrentUser(profile);
 				if (navigator.onLine) webrtcService.listenForIncomingCalls(profile.id);
+				deviceSessionService.startSessionTracking(profile.id, () => {
+					showToast("Signed out remotely from another linked device.");
+					deviceSessionService.stopSessionTracking();
+					authService.signOut();
+				}).catch(() => {});
+				notificationService.requestPermissions().then(() => notificationService.startBackgroundService()).catch(() => {});
 			} catch (err) {
 				console.error("Auth profile error:", err);
 			}
 			else {
 				webrtcService.stopListeningForIncomingCalls();
+				deviceSessionService.stopSessionTracking();
+				notificationService.stopBackgroundService();
 				chatStore.setCurrentUser(null);
 				setCurrentUser(null);
 				setActiveChat(null);
@@ -63843,14 +67394,19 @@ function App() {
 		};
 		const handleVisibilityChange = () => {
 			const user = chatStore.getCurrentUser();
-			if (!user || !navigator.onLine) return;
-			if (document.visibilityState === "hidden") authService.setOfflineStatus(user.id);
-			else {
-				chatStore.updateProfile({
-					isOnline: true,
-					lastSeen: "Online"
-				}).catch(() => {});
-				chatStore.flushOfflineOutbox();
+			if (document.visibilityState === "hidden") {
+				if (Date.now() - lastUnlockedAtRef.current > 3e3) hiddenAtRef.current = Date.now();
+				if (user && navigator.onLine) authService.setOfflineStatus(user.id);
+			} else {
+				if (securityService.isAppLockEnabled() && hiddenAtRef.current && Date.now() - hiddenAtRef.current > 2e4 && Date.now() - lastUnlockedAtRef.current > 5e3) setIsAppLocked(true);
+				hiddenAtRef.current = null;
+				if (user && navigator.onLine) {
+					chatStore.updateProfile({
+						isOnline: true,
+						lastSeen: "Online"
+					}).catch(() => {});
+					chatStore.flushOfflineOutbox();
+				}
 			}
 		};
 		const handleBeforeUnload = () => {
@@ -63868,6 +67424,7 @@ function App() {
 			document.removeEventListener("visibilitychange", handleVisibilityChange);
 			window.removeEventListener("beforeunload", handleBeforeUnload);
 			webrtcService.stopListeningForIncomingCalls();
+			deviceSessionService.stopSessionTracking();
 		};
 	}, []);
 	(0, import_react.useEffect)(() => {
@@ -63890,11 +67447,22 @@ function App() {
 		chatStore.setActiveChatId(activeChat?.id || null);
 	}, [activeChat?.id]);
 	(0, import_react.useEffect)(() => {
+		return notificationService.bindActionListeners((payload) => {
+			if (payload.action === "open_chat" && payload.chatId) {
+				const target = chatStore.getChat(payload.chatId);
+				if (target) openChatWithLockGuard(target, true);
+			} else if (payload.action === "answer_call") webrtcService.answerCallById(payload.callId);
+			else if (payload.action === "decline_call" && payload.callId) webrtcService.rejectCall(payload.callId);
+		});
+	}, []);
+	(0, import_react.useEffect)(() => {
 		if (!Capacitor.isNativePlatform()) return;
 		const listenerPromise = App$1.addListener("backButton", ({ canGoBack }) => {
-			if (isAdminOpen) setIsAdminOpen(false);
+			if (pendingUnlockChat) setPendingUnlockChat(null);
+			else if (isAdminOpen) setIsAdminOpen(false);
 			else if (isSettingsOpen) setIsSettingsOpen(false);
 			else if (isNotificationsOpen) setIsNotificationsOpen(false);
+			else if (isChannelsOpen) setIsChannelsOpen(false);
 			else if (isGroupOpen) setIsGroupOpen(false);
 			else if (isAuthOpen && currentUser && currentUser.isProfileComplete !== false) setIsAuthOpen(false);
 			else if (activeChat) setActiveChat(null);
@@ -63906,9 +67474,11 @@ function App() {
 			listenerPromise.then((h) => h.remove()).catch(() => {});
 		};
 	}, [
+		pendingUnlockChat,
 		isAdminOpen,
 		isSettingsOpen,
 		isNotificationsOpen,
+		isChannelsOpen,
 		isGroupOpen,
 		isAuthOpen,
 		currentUser,
@@ -63959,10 +67529,10 @@ function App() {
 			return;
 		}
 		const chat = await chatStore.createOrGetPrivateChat(partner.id);
-		setActiveChat(chat);
-		setCurrentTab("chats");
+		openChatWithLockGuard(chat, true);
 	};
 	const handleSignOut = async () => {
+		deviceSessionService.stopSessionTracking();
 		await authService.signOut();
 		chatStore.setCurrentUser(null);
 		setCurrentUser(null);
@@ -64016,7 +67586,7 @@ function App() {
 							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatList, {
 								chats,
 								activeChatId: activeChat?.id || null,
-								onSelectChat: (chat) => setActiveChat(chat),
+								onSelectChat: (chat) => openChatWithLockGuard(chat),
 								onSelectUserToChat: handleSelectUserToChat,
 								currentUser,
 								onNewChat: () => setCurrentTab("contacts"),
@@ -64027,6 +67597,13 @@ function App() {
 									}
 									setGroupToEdit(null);
 									setIsGroupOpen(true);
+								},
+								onOpenChannelsBroadcast: () => {
+									if (!currentUser) {
+										setIsAuthOpen(true);
+										return;
+									}
+									setIsChannelsOpen(true);
 								}
 							})
 						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -64055,8 +67632,7 @@ function App() {
 								return;
 							}
 							chatStore.createOrGetPrivateChat(targetUserId).then((chat) => {
-								setActiveChat(chat);
-								setCurrentTab("chats");
+								openChatWithLockGuard(chat, true);
 							});
 						}
 					}),
@@ -64111,6 +67687,14 @@ function App() {
 					showToast("You left the group.");
 				}
 			}),
+			currentUser && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChannelsBroadcastModal, {
+				isOpen: isChannelsOpen,
+				onClose: () => setIsChannelsOpen(false),
+				currentUser,
+				onOpenChat: (c) => {
+					openChatWithLockGuard(c, true);
+				}
+			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SettingsModal, {
 				isOpen: isSettingsOpen,
 				onClose: () => setIsSettingsOpen(false),
@@ -64128,11 +67712,33 @@ function App() {
 				onClose: () => setIsNotificationsOpen(false),
 				onOpenChat: (chatId) => {
 					const target = chatStore.getChat(chatId);
-					if (target) {
-						setActiveChat(target);
+					if (target) openChatWithLockGuard(target, true);
+				}
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(LockScreenModal, {
+				isOpen: !showSplash && isAppLocked,
+				mode: "app",
+				userLabel: currentUser?.email,
+				onUnlocked: () => {
+					lastUnlockedAtRef.current = Date.now();
+					setIsAppLocked(false);
+				}
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(LockScreenModal, {
+				isOpen: !showSplash && !isAppLocked && Boolean(pendingUnlockChat),
+				mode: "chat",
+				title: pendingUnlockChat?.name || "Locked Chat",
+				subtitle: "Verify Fingerprint, Face ID, or PIN to open this locked chat",
+				userLabel: currentUser?.email,
+				onUnlocked: () => {
+					lastUnlockedAtRef.current = Date.now();
+					if (pendingUnlockChat) {
+						setActiveChat(pendingUnlockChat);
 						setCurrentTab("chats");
 					}
-				}
+					setPendingUnlockChat(null);
+				},
+				onCancel: () => setPendingUnlockChat(null)
 			})
 		]
 	});

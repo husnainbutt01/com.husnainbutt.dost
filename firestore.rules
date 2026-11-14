@@ -49,8 +49,8 @@ service cloud.firestore {
     function isValidChat(data) {
       return data.keys().hasAll(['id', 'type', 'participants']) &&
              data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
-             (data.type == 'private' || data.type == 'group') &&
-             data.participants is list && data.participants.size() >= 1 && data.participants.size() <= 500 &&
+             (data.type in ['private', 'group', 'channel', 'broadcast']) &&
+             data.participants is list && data.participants.size() >= 1 && data.participants.size() <= 1000 &&
              (!('lastMessage' in data) || data.lastMessage == null || (data.lastMessage is string && data.lastMessage.size() <= 1000)) &&
              (!('name' in data) || data.name == null || (data.name is string && data.name.size() <= 100)) &&
              (!('description' in data) || data.description == null || (data.description is string && data.description.size() <= 500));
@@ -60,8 +60,8 @@ service cloud.firestore {
       return data.keys().hasAll(['id', 'chatId', 'participants', 'senderId', 'type']) &&
              data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
              data.chatId is string && data.chatId.size() > 0 && data.chatId.size() <= 128 &&
-             data.participants is list && data.participants.size() >= 1 && data.participants.size() <= 500 &&
-             (data.type in ['text', 'image', 'video', 'audio', 'document', 'call_log']) &&
+             data.participants is list && data.participants.size() >= 1 && data.participants.size() <= 1000 &&
+             (data.type in ['text', 'image', 'video', 'audio', 'document', 'call_log', 'poll', 'payment']) &&
              (!('text' in data) || data.text == null || (data.text is string && data.text.size() <= 5000)) &&
              (!('mediaUrl' in data) || data.mediaUrl == null || (data.mediaUrl is string && data.mediaUrl.size() <= 750000)) &&
              (!('fileName' in data) || data.fileName == null || (data.fileName is string && data.fileName.size() <= 255));
@@ -111,6 +111,32 @@ service cloud.firestore {
              data.reason is string && data.reason.size() <= 150;
     }
 
+    function isValidDeviceSession(data) {
+      return data.keys().hasAll(['id', 'userId', 'deviceId', 'deviceName', 'platform']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.deviceId is string && data.deviceId.size() > 0 && data.deviceId.size() <= 128 &&
+             data.deviceName is string && data.deviceName.size() > 0 && data.deviceName.size() <= 120 &&
+             (data.platform in ['android', 'desktop', 'tablet', 'mobile_web']) &&
+             (!('browserInfo' in data) || data.browserInfo == null || (data.browserInfo is string && data.browserInfo.size() <= 200));
+    }
+
+    function isValidPayment(data) {
+      return data.keys().hasAll(['id', 'chatId', 'senderId', 'receiverId', 'amount', 'currency', 'method', 'kind', 'status']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.chatId is string && data.chatId.size() > 0 && data.chatId.size() <= 128 &&
+             data.senderId is string && data.senderId.size() > 0 && data.senderId.size() <= 128 &&
+             data.receiverId is string && data.receiverId.size() > 0 && data.receiverId.size() <= 128 &&
+             data.amount is number && data.amount > 0 && data.amount <= 10000000 &&
+             data.currency == 'PKR' &&
+             (data.method in ['jazzcash', 'easypaisa', 'sadapay', 'nayapay', 'raast']) &&
+             (data.kind in ['send', 'request']) &&
+             (data.status in ['pending', 'sent', 'completed', 'declined']) &&
+             (!('note' in data) || data.note == null || (data.note is string && data.note.size() <= 200)) &&
+             (!('referenceId' in data) || data.referenceId == null || (data.referenceId is string && data.referenceId.size() <= 80)) &&
+             (!('accountNumber' in data) || data.accountNumber == null || (data.accountNumber is string && data.accountNumber.size() <= 64));
+    }
+
     // Admins collection
     match /admins/{adminId} {
       allow read: if isSignedIn();
@@ -132,26 +158,52 @@ service cloud.firestore {
 
     // Chats Collection
     match /chats/{chatId} {
-      allow get: if isSignedIn() && (request.auth.uid in existing().participants || isAdmin());
-      allow list: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
+      allow get: if isSignedIn() && (
+        request.auth.uid in existing().participants ||
+        (existing().type == 'channel' && existing().isPublic == true) ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        request.auth.uid in resource.data.participants ||
+        (resource.data.type == 'channel' && resource.data.isPublic == true) ||
+        isAdmin()
+      );
       allow create: if isSignedIn() && isValidChat(incoming()) && (request.auth.uid in incoming().participants || isAdmin());
-      allow update: if isSignedIn() && (request.auth.uid in existing().participants || isAdmin()) && isValidChat(incoming());
+      allow update: if isSignedIn() && isValidChat(incoming()) && (
+        request.auth.uid in existing().participants ||
+        (existing().type == 'channel' && existing().isPublic == true && incoming().diff(existing()).affectedKeys().hasOnly(['participants', 'updatedAt'])) ||
+        isAdmin()
+      );
       allow delete: if isSignedIn() && (request.auth.uid in existing().participants || isAdmin());
     }
 
     // Messages Collection
     match /messages/{messageId} {
-      allow get: if isSignedIn() && (request.auth.uid in existing().participants || isAdmin());
-      allow list: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
-      allow create: if isSignedIn() && isValidMessage(incoming()) && incoming().senderId == request.auth.uid && (request.auth.uid in incoming().participants);
-      allow update: if isSignedIn() && (request.auth.uid in existing().participants || isAdmin()) && (
-        // Case 1: Status / delivery / reaction update by participants
-        (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'readBy', 'deliveredTo', 'reactions'])) ||
-        // Case 2: Author edits message text
-        (existing().senderId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['text', 'isEdited', 'updatedAt'])) ||
-        // Case 3: Soft delete
-        (existing().senderId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'text', 'updatedAt'])) ||
+      allow get: if isSignedIn() && (
+        request.auth.uid in existing().participants ||
+        existing().isPublicChannel == true ||
         isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        request.auth.uid in resource.data.participants ||
+        resource.data.isPublicChannel == true ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && isValidMessage(incoming()) && incoming().senderId == request.auth.uid && (request.auth.uid in incoming().participants);
+      allow update: if isSignedIn() && isValidMessage(incoming()) && (
+        (request.auth.uid in existing().participants || existing().isPublicChannel == true || isAdmin()) && (
+          // Case 1: Status / delivery / reaction update by participants
+          (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'readBy', 'deliveredTo', 'reactions'])) ||
+          // Case 2: Poll vote update
+          (existing().type == 'poll' && incoming().diff(existing()).affectedKeys().hasOnly(['poll', 'updatedAt'])) ||
+          // Case 3: Author edits message text
+          (existing().senderId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['text', 'isEdited', 'updatedAt'])) ||
+          // Case 4: Soft delete for everyone
+          (existing().senderId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'text', 'mediaUrl', 'updatedAt'])) ||
+          // Case 5: In-chat payment status update by sender or recipient
+          (existing().type == 'payment' && incoming().diff(existing()).affectedKeys().hasOnly(['payment', 'updatedAt'])) ||
+          isAdmin()
+        )
       );
       allow delete: if isSignedIn() && (existing().senderId == request.auth.uid || isAdmin());
     }
@@ -219,6 +271,32 @@ service cloud.firestore {
       allow get, list: if isSignedIn() && (resource.data.reporterId == request.auth.uid || isAdmin());
       allow create: if isSignedIn() && isValidReport(incoming());
       allow update, delete: if isAdmin();
+    }
+
+    // Multi-Device Sessions Collection
+    match /device_sessions/{sessionId} {
+      allow get, list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidDeviceSession(incoming());
+      allow update: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin()) && isValidDeviceSession(incoming());
+      allow delete: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // In-App P2P Payments Collection
+    match /payments/{paymentId} {
+      allow get, list: if isSignedIn() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(paymentId) && incoming().senderId == request.auth.uid && isValidPayment(incoming());
+      allow update: if isSignedIn() && isValidId(paymentId) && isValidPayment(incoming()) && (
+        isAdmin() || (
+          (existing().senderId == request.auth.uid || existing().receiverId == request.auth.uid) &&
+          existing().senderId == incoming().senderId &&
+          existing().receiverId == incoming().receiverId &&
+          existing().amount == incoming().amount &&
+          existing().currency == incoming().currency &&
+          existing().status in ['pending', 'sent'] &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'referenceId', 'accountNumber', 'updatedAt'])
+        )
+      );
+      allow delete: if isAdmin();
     }
   }
 }

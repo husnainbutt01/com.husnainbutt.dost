@@ -20,8 +20,13 @@ import {
   Report,
   Story,
   CallSession,
+  PollData,
+  PaymentData,
+  PaymentMethod,
 } from '../types';
 import { sounds } from '../utils/soundEffects';
+import { notificationService } from './notificationService';
+import { formatPKR, generatePaymentRef, paymentService } from './paymentService';
 
 interface OutboxEntry {
   message: Message;
@@ -35,7 +40,9 @@ const CACHE_KEY = (uid: string, kind: 'users' | 'chats' | 'messages') => `dost_c
 class ChatStore {
   private users: User[] = [];
   private chats: Chat[] = [];
+  private publicChannels: Chat[] = [];
   private messages: Message[] = [];
+  private publicChannelMessages: Message[] = [];
   private outbox: OutboxEntry[] = [];
   private stories: Story[] = [];
   private blockedUsers: BlockedUser[] = [];
@@ -126,15 +133,19 @@ class ChatStore {
       if (prevUid !== user.id) {
         this.loadLocalCaches(user.id);
         this.initFirestoreListeners(user.id);
+        paymentService.startListening(user.id);
         if (typeof navigator !== 'undefined' && navigator.onLine && this.outbox.length > 0) {
           void this.flushOfflineOutbox();
         }
       }
     } else {
       this.cleanupListeners();
+      paymentService.stopListening();
       this.users = [];
       this.chats = [];
+      this.publicChannels = [];
       this.messages = [];
+      this.publicChannelMessages = [];
       this.outbox = [];
       this.stories = [];
       this.blockedUsers = [];
@@ -221,7 +232,7 @@ class ChatStore {
         messagesQuery,
         (snapshot) => {
           const fetchedMessages: Message[] = [];
-          let hasNewIncoming = false;
+          const newIncomingMessages: Message[] = [];
 
           snapshot.forEach((d) => {
             const msg = d.data() as Message;
@@ -230,9 +241,10 @@ class ChatStore {
             if (
               this.initialMessagesLoaded &&
               !this.messages.some((m) => m.id === msg.id) &&
-              msg.senderId !== userId
+              msg.senderId !== userId &&
+              !msg.isDeleted
             ) {
-              hasNewIncoming = true;
+              newIncomingMessages.push(msg);
             }
 
             if (msg.senderId !== userId && !msg.isDeleted) {
@@ -269,15 +281,54 @@ class ChatStore {
             this.saveOutbox();
           }
 
-          if (hasNewIncoming && this.currentUser?.notificationSettings?.messageSounds !== false) {
-            const incomingUnmuted = fetchedMessages.some((m) => {
-              if (m.senderId === userId) return false;
+          if (newIncomingMessages.length > 0) {
+            const unmutedIncoming = newIncomingMessages.filter((m) => {
               const chat = this.getChat(m.chatId);
               const isMuted = (chat?.mutedBy || []).includes(userId);
-              return !isMuted && !this.messages.some((old) => old.id === m.id);
+              const isBlocked = this.isUserBlocked(m.senderId);
+              return !isMuted && !isBlocked;
             });
-            if (incomingUnmuted) {
-              sounds.playMessageReceived();
+
+            if (unmutedIncoming.length > 0) {
+              if (this.currentUser?.notificationSettings?.messageSounds !== false) {
+                sounds.playMessageReceived();
+              }
+
+              if (this.currentUser?.notificationSettings?.inAppAlerts !== false) {
+                const showPreview = this.currentUser?.notificationSettings?.previewMessage !== false;
+                const latestMsg = unmutedIncoming[unmutedIncoming.length - 1];
+                const chat = this.getChat(latestMsg.chatId);
+                const senderLabel = latestMsg.senderName || 'DOST User';
+                const title =
+                  chat?.type === 'group'
+                    ? `${senderLabel} · ${chat.name || 'Group'}`
+                    : senderLabel;
+                const previewText = showPreview
+                  ? latestMsg.text ||
+                    (latestMsg.type === 'image'
+                      ? 'Sent a photo'
+                      : latestMsg.type === 'video'
+                      ? 'Sent a video'
+                      : latestMsg.type === 'audio'
+                      ? 'Sent a voice message'
+                      : latestMsg.type === 'document'
+                      ? `Document: ${latestMsg.fileName || 'File'}`
+                      : latestMsg.type === 'payment' && latestMsg.payment
+                      ? latestMsg.payment.kind === 'send'
+                        ? `Sent ${formatPKR(latestMsg.payment.amount)}`
+                        : `Requested ${formatPKR(latestMsg.payment.amount)}`
+                      : 'New message')
+                  : 'New message received';
+
+                void notificationService.notifyIncomingMessage({
+                  messageId: latestMsg.id,
+                  chatId: latestMsg.chatId,
+                  title,
+                  body: previewText,
+                  senderName: senderLabel,
+                  isActiveChat: this.activeChatId === latestMsg.chatId,
+                });
+              }
             }
           }
           this.notify();
@@ -386,6 +437,43 @@ class ChatStore {
         () => {}
       );
       this.unsubs.push(unsub);
+    } catch {}
+
+    // 9. Discoverable Public Channels & Channel Posts
+    try {
+      const pubChannelsQuery = query(
+        collection(db, 'chats'),
+        where('type', '==', 'channel'),
+        where('isPublic', '==', true)
+      );
+      const unsubCh = onSnapshot(
+        pubChannelsQuery,
+        (snapshot) => {
+          const list: Chat[] = [];
+          snapshot.forEach((d) => list.push(d.data() as Chat));
+          this.publicChannels = list.sort((a, b) => (b.participants?.length || 0) - (a.participants?.length || 0));
+          this.notify();
+        },
+        () => {}
+      );
+      this.unsubs.push(unsubCh);
+
+      const pubMsgsQuery = query(
+        collection(db, 'messages'),
+        where('isPublicChannel', '==', true)
+      );
+      const unsubPubMsgs = onSnapshot(
+        pubMsgsQuery,
+        (snapshot) => {
+          const list: Message[] = [];
+          snapshot.forEach((d) => list.push(d.data() as Message));
+          list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+          this.publicChannelMessages = list;
+          this.notify();
+        },
+        () => {}
+      );
+      this.unsubs.push(unsubPubMsgs);
     } catch {}
   }
 
@@ -607,6 +695,8 @@ class ChatStore {
       participants: string[];
       adminIds?: string[];
       photoUrl?: string;
+      onlyAdminsCanMessage?: boolean;
+      onlyAdminsCanEdit?: boolean;
     }
   ) {
     if (!this.currentUser) return;
@@ -618,6 +708,12 @@ class ChatStore {
         participants: updates.participants,
         ...(updates.adminIds ? { adminIds: updates.adminIds } : {}),
         ...(updates.photoUrl ? { photoUrl: updates.photoUrl } : {}),
+        ...(updates.onlyAdminsCanMessage !== undefined
+          ? { onlyAdminsCanMessage: updates.onlyAdminsCanMessage }
+          : {}),
+        ...(updates.onlyAdminsCanEdit !== undefined
+          ? { onlyAdminsCanEdit: updates.onlyAdminsCanEdit }
+          : {}),
         updatedAt: now,
       });
       await updateDoc(doc(db, 'groups', groupId), {
@@ -631,6 +727,120 @@ class ChatStore {
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `groups/${groupId}`);
     }
+  }
+
+  getPublicChannels(): Chat[] {
+    return this.publicChannels;
+  }
+
+  async createChannel(
+    name: string,
+    description: string,
+    isPublic: boolean,
+    photoUrl?: string
+  ): Promise<Chat> {
+    if (!this.currentUser) throw new Error('Must be logged in to create a channel');
+    const myUid = this.currentUser.id;
+    const channelId = `channel_${Date.now()}`;
+    const now = new Date().toISOString();
+
+    const newChannel: Chat = {
+      id: channelId,
+      type: 'channel',
+      name: name.trim(),
+      description: description.trim(),
+      photoUrl: photoUrl || '/assets/aistudio/download_7eb2aac4.jpeg',
+      participants: [myUid],
+      adminIds: [myUid],
+      createdBy: myUid,
+      isPublic,
+      onlyAdminsCanMessage: true,
+      onlyAdminsCanEdit: true,
+      lastMessage: `Channel "${name.trim()}" created`,
+      lastMessageTime: now,
+      lastSenderId: myUid,
+      pinnedBy: [],
+      mutedBy: [],
+      archivedBy: [],
+      typingUsers: {},
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    try {
+      await setDoc(doc(db, 'chats', channelId), newChannel);
+      await this.sendMessage({
+        chatId: channelId,
+        participants: [myUid],
+        text: `Welcome to ${name.trim()}! Official updates & announcements will appear here.`,
+        type: 'text',
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `chats/${channelId}`);
+    }
+
+    return newChannel;
+  }
+
+  async joinChannel(channelId: string) {
+    if (!this.currentUser) return;
+    try {
+      await updateDoc(doc(db, 'chats', channelId), {
+        participants: arrayUnion(this.currentUser.id),
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `chats/${channelId}`);
+    }
+  }
+
+  async leaveChannel(channelId: string) {
+    if (!this.currentUser) return;
+    try {
+      await updateDoc(doc(db, 'chats', channelId), {
+        participants: arrayRemove(this.currentUser.id),
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `chats/${channelId}`);
+    }
+  }
+
+  async createBroadcastList(name: string, recipientIds: string[]): Promise<Chat> {
+    if (!this.currentUser) throw new Error('Must be logged in to create a broadcast list');
+    const myUid = this.currentUser.id;
+    const allMembers = Array.from(new Set([myUid, ...recipientIds]));
+    const broadcastId = `broadcast_${Date.now()}`;
+    const now = new Date().toISOString();
+
+    const newBroadcast: Chat = {
+      id: broadcastId,
+      type: 'broadcast',
+      name: name.trim(),
+      description: `Broadcast list · ${recipientIds.length} recipients`,
+      photoUrl: '/assets/aistudio/download_7eb2aac4.jpeg',
+      participants: allMembers,
+      adminIds: [myUid],
+      createdBy: myUid,
+      onlyAdminsCanMessage: true,
+      lastMessage: `Broadcast list ready (${recipientIds.length} recipients)`,
+      lastMessageTime: now,
+      lastSenderId: myUid,
+      pinnedBy: [],
+      mutedBy: [],
+      archivedBy: [],
+      typingUsers: {},
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    try {
+      await setDoc(doc(db, 'chats', broadcastId), newBroadcast);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `chats/${broadcastId}`);
+    }
+
+    return newBroadcast;
   }
 
   async leaveGroup(groupId: string) {
@@ -775,16 +985,26 @@ class ChatStore {
     }
   }
 
-  // Merge Firestore-synced messages with offline queued outbox messages (excluding user's hidden messages)
+  // Merge Firestore-synced messages, public channel posts, and offline queued outbox messages
   getMessages(chatId: string): Message[] {
-    const synced = this.messages.filter(
-      (m) => m.chatId === chatId && !this.hiddenMessageIds.has(m.id)
-    );
-    const syncedIds = new Set(synced.map((m) => m.id));
-    const pending = this.outbox
-      .map((e) => e.message)
-      .filter((m) => m.chatId === chatId && !syncedIds.has(m.id) && !this.hiddenMessageIds.has(m.id));
-    return [...synced, ...pending].sort(
+    const map = new Map<string, Message>();
+    for (const m of this.messages) {
+      if (m.chatId === chatId && !this.hiddenMessageIds.has(m.id)) {
+        map.set(m.id, m);
+      }
+    }
+    for (const m of this.publicChannelMessages) {
+      if (m.chatId === chatId && !this.hiddenMessageIds.has(m.id) && !map.has(m.id)) {
+        map.set(m.id, m);
+      }
+    }
+    for (const e of this.outbox) {
+      const m = e.message;
+      if (m.chatId === chatId && !this.hiddenMessageIds.has(m.id) && !map.has(m.id)) {
+        map.set(m.id, m);
+      }
+    }
+    return Array.from(map.values()).sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
   }
@@ -868,7 +1088,9 @@ class ChatStore {
     chatId: string;
     participants?: string[];
     text?: string;
-    type?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'call_log';
+    type?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'call_log' | 'poll' | 'payment';
+    poll?: PollData;
+    payment?: PaymentData;
     mediaUrl?: string;
     fileName?: string;
     fileSize?: string;
@@ -877,11 +1099,16 @@ class ChatStore {
     replyToText?: string;
     replyToSenderName?: string;
     forwardedFrom?: string;
+    skipBroadcastFanout?: boolean;
   }): Promise<Message> {
     if (!this.currentUser) throw new Error('User must be logged in');
 
     const chat = this.getChat(params.chatId);
-    const participants = params.participants || chat?.participants || [this.currentUser.id];
+    const isBroadcast = chat?.type === 'broadcast';
+    const isPublicChannel = Boolean(chat?.type === 'channel' && chat?.isPublic);
+    const participants = isBroadcast
+      ? [this.currentUser.id]
+      : params.participants || chat?.participants || [this.currentUser.id];
     const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const now = new Date().toISOString();
     const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
@@ -890,11 +1117,14 @@ class ChatStore {
       id: msgId,
       chatId: params.chatId,
       participants,
+      ...(isPublicChannel ? { isPublicChannel: true } : {}),
       senderId: this.currentUser.id,
       senderName: this.currentUser.displayName,
       senderPhotoUrl: this.currentUser.photoUrl || '',
       text: params.text || '',
       type: params.type || 'text',
+      ...(params.poll ? { poll: params.poll } : {}),
+      ...(params.payment ? { payment: params.payment } : {}),
       ...(params.mediaUrl ? { mediaUrl: params.mediaUrl } : {}),
       ...(params.fileName ? { fileName: params.fileName } : {}),
       ...(params.fileSize ? { fileSize: params.fileSize } : {}),
@@ -910,21 +1140,30 @@ class ChatStore {
     };
 
     const preview =
-      params.text ||
-      (params.type === 'image'
-        ? '📷 Photo'
-        : params.type === 'video'
-        ? '🎥 Video'
-        : params.type === 'audio'
-        ? '🎤 Voice message'
-        : params.type === 'document'
-        ? `📄 ${params.fileName || 'Document'}`
-        : 'Message');
+      params.type === 'poll'
+        ? `📊 Poll: ${params.poll?.question || 'Vote now'}`
+        : params.type === 'payment' && params.payment
+        ? params.payment.kind === 'send'
+          ? `💸 Payment: ${formatPKR(params.payment.amount)}`
+          : `💳 Payment Request: ${formatPKR(params.payment.amount)}`
+        : params.text ||
+          (params.type === 'image'
+            ? '📷 Photo'
+            : params.type === 'video'
+            ? '🎥 Video'
+            : params.type === 'audio'
+            ? '🎤 Voice message'
+            : params.type === 'document'
+            ? `📄 ${params.fileName || 'Document'}`
+            : 'Message');
 
     const entry: OutboxEntry = {
       message: { ...newMessage, status: 'pending' },
       preview,
-      chatTitle: chat?.type === 'group' ? chat.name || 'Group' : this.currentUser.displayName,
+      chatTitle:
+        chat?.type === 'group' || chat?.type === 'channel'
+          ? chat.name || 'DOST'
+          : this.currentUser.displayName,
     };
 
     if (this.currentUser.notificationSettings?.messageSounds !== false) {
@@ -935,6 +1174,27 @@ class ChatStore {
     this.outbox.push(entry);
     this.saveOutbox();
     this.notify();
+
+    // Broadcast list fan-out: deliver individually to every recipient's private chat
+    if (isBroadcast && !params.skipBroadcastFanout && chat) {
+      const recipientIds = chat.participants.filter((uid) => uid !== this.currentUser!.id);
+      for (const recipientId of recipientIds) {
+        void this.createOrGetPrivateChat(recipientId).then((privateChat) =>
+          this.sendMessage({
+            chatId: privateChat.id,
+            participants: privateChat.participants,
+            text: params.text,
+            type: params.type,
+            poll: params.poll,
+            mediaUrl: params.mediaUrl,
+            fileName: params.fileName,
+            fileSize: params.fileSize,
+            duration: params.duration,
+            skipBroadcastFanout: true,
+          })
+        );
+      }
+    }
 
     // If offline right now, return immediately — flushOfflineOutbox() will auto-send on reconnect!
     if (!isOnline) {
@@ -948,11 +1208,170 @@ class ChatStore {
       this.saveOutbox();
       this.notify();
     } catch (err) {
-      // Keep in outbox if network dropped mid-flight; do not crash UI
       console.warn('Message queued for auto-retry:', err);
     }
 
     return newMessage;
+  }
+
+  async sendPollMessage(
+    chatId: string,
+    question: string,
+    optionTexts: string[],
+    allowMultiple: boolean
+  ): Promise<Message> {
+    const cleanOptions = optionTexts
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .slice(0, 6)
+      .map((text, idx) => ({
+        id: `opt_${idx}_${Date.now().toString(36)}`,
+        text,
+        voterIds: [],
+      }));
+
+    return this.sendMessage({
+      chatId,
+      text: question.trim(),
+      type: 'poll',
+      poll: {
+        question: question.trim(),
+        allowMultiple,
+        options: cleanOptions,
+      },
+    });
+  }
+
+  async voteOnPoll(messageId: string, optionId: string) {
+    if (!this.currentUser) return;
+    const myUid = this.currentUser.id;
+    const msg =
+      this.messages.find((m) => m.id === messageId) ||
+      this.publicChannelMessages.find((m) => m.id === messageId);
+    if (!msg || !msg.poll || msg.poll.isClosed) return;
+
+    const updatedOptions = msg.poll.options.map((opt) => {
+      const hasVoted = opt.voterIds.includes(myUid);
+      if (opt.id === optionId) {
+        return {
+          ...opt,
+          voterIds: hasVoted
+            ? opt.voterIds.filter((id) => id !== myUid)
+            : [...opt.voterIds, myUid],
+        };
+      }
+      if (!msg.poll!.allowMultiple && hasVoted) {
+        return {
+          ...opt,
+          voterIds: opt.voterIds.filter((id) => id !== myUid),
+        };
+      }
+      return opt;
+    });
+
+    const updatedPoll: PollData = {
+      ...msg.poll,
+      options: updatedOptions,
+    };
+
+    try {
+      await updateDoc(doc(db, 'messages', messageId), {
+        poll: updatedPoll,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `messages/${messageId}`);
+    }
+  }
+
+  async sendPaymentMessage(params: {
+    chatId: string;
+    receiverId: string;
+    receiverName: string;
+    kind: 'send' | 'request';
+    amount: number;
+    method: PaymentMethod;
+    accountNumber?: string;
+    accountTitle?: string;
+    referenceId?: string;
+    note?: string;
+  }): Promise<Message> {
+    if (!this.currentUser) throw new Error('User must be logged in');
+    const paymentId = `pay_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const now = new Date().toISOString();
+    const refId = params.referenceId?.trim() || generatePaymentRef();
+    const initialStatus = params.kind === 'send' ? 'sent' : 'pending';
+
+    const paymentData: PaymentData = {
+      paymentId,
+      kind: params.kind,
+      amount: params.amount,
+      currency: 'PKR',
+      method: params.method,
+      status: initialStatus,
+      receiverId: params.receiverId,
+      receiverName: params.receiverName,
+      ...(params.accountNumber ? { accountNumber: params.accountNumber.trim() } : {}),
+      ...(params.accountTitle ? { accountTitle: params.accountTitle.trim() } : {}),
+      referenceId: refId,
+      ...(params.note ? { note: params.note.trim() } : {}),
+    };
+
+    await paymentService.createLedgerEntry({
+      id: paymentId,
+      chatId: params.chatId,
+      senderId: this.currentUser.id,
+      senderName: this.currentUser.displayName,
+      receiverId: params.receiverId,
+      receiverName: params.receiverName,
+      amount: params.amount,
+      currency: 'PKR',
+      method: params.method,
+      kind: params.kind,
+      status: initialStatus,
+      ...(params.accountNumber ? { accountNumber: params.accountNumber.trim() } : {}),
+      referenceId: refId,
+      ...(params.note ? { note: params.note.trim() } : {}),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const summaryText =
+      params.kind === 'send'
+        ? `Sent ${formatPKR(params.amount)}${params.note ? ` · ${params.note.trim()}` : ''}`
+        : `Requested ${formatPKR(params.amount)}${params.note ? ` · ${params.note.trim()}` : ''}`;
+
+    return this.sendMessage({
+      chatId: params.chatId,
+      text: summaryText,
+      type: 'payment',
+      payment: paymentData,
+    });
+  }
+
+  async respondToPaymentMessage(
+    messageId: string,
+    nextStatus: 'sent' | 'completed' | 'declined',
+    referenceId?: string
+  ): Promise<void> {
+    const msg = this.messages.find((m) => m.id === messageId);
+    if (!msg || !msg.payment) return;
+    const now = new Date().toISOString();
+    const updatedPayment: PaymentData = {
+      ...msg.payment,
+      status: nextStatus,
+      ...(referenceId?.trim() ? { referenceId: referenceId.trim() } : {}),
+    };
+
+    try {
+      await updateDoc(doc(db, 'messages', messageId), {
+        payment: updatedPayment,
+        updatedAt: now,
+      });
+      await paymentService.updateLedgerStatus(msg.payment.paymentId, nextStatus, referenceId);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `messages/${messageId}`);
+    }
   }
 
   async forwardMessage(message: Message, targetChatId: string) {
@@ -960,6 +1379,7 @@ class ChatStore {
       chatId: targetChatId,
       text: message.text,
       type: message.type,
+      poll: message.poll,
       mediaUrl: message.mediaUrl,
       fileName: message.fileName,
       fileSize: message.fileSize,
@@ -969,7 +1389,6 @@ class ChatStore {
   }
 
   async editMessage(messageId: string, newText: string) {
-    // Check if still in offline outbox
     const outboxIdx = this.outbox.findIndex((e) => e.message.id === messageId);
     if (outboxIdx >= 0) {
       this.outbox[outboxIdx].message.text = newText;
@@ -979,10 +1398,15 @@ class ChatStore {
       return;
     }
 
+    const msg =
+      this.messages.find((m) => m.id === messageId) ||
+      this.publicChannelMessages.find((m) => m.id === messageId);
+    const now = new Date().toISOString();
+
     const op = updateDoc(doc(db, 'messages', messageId), {
       text: newText,
       isEdited: true,
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
     });
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       op.catch(() => {});
@@ -990,6 +1414,16 @@ class ChatStore {
     }
     try {
       await op;
+      if (msg) {
+        const chatMsgs = this.getMessages(msg.chatId);
+        const latest = chatMsgs[chatMsgs.length - 1];
+        if (latest && latest.id === messageId) {
+          updateDoc(doc(db, 'chats', msg.chatId), {
+            lastMessage: newText,
+            updatedAt: now,
+          }).catch(() => {});
+        }
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `messages/${messageId}`);
     }
@@ -1010,10 +1444,16 @@ class ChatStore {
       return;
     }
 
+    const msg =
+      this.messages.find((m) => m.id === messageId) ||
+      this.publicChannelMessages.find((m) => m.id === messageId);
+    const now = new Date().toISOString();
+
     const op = updateDoc(doc(db, 'messages', messageId), {
       text: 'This message was deleted',
+      mediaUrl: '',
       isDeleted: true,
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
     });
 
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -1022,6 +1462,16 @@ class ChatStore {
     }
     try {
       await op;
+      if (msg) {
+        const chatMsgs = this.getMessages(msg.chatId);
+        const latest = chatMsgs[chatMsgs.length - 1];
+        if (latest && latest.id === messageId) {
+          updateDoc(doc(db, 'chats', msg.chatId), {
+            lastMessage: 'This message was deleted',
+            updatedAt: now,
+          }).catch(() => {});
+        }
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `messages/${messageId}`);
     }

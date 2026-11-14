@@ -26,8 +26,11 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "description": "Unique chat thread ID" },
-        "type": { "type": "string", "enum": ["private", "group"], "description": "Direct one-on-one or group chat" },
+        "type": { "type": "string", "enum": ["private", "group", "channel", "broadcast"], "description": "Direct, group, channel, or broadcast list" },
         "participants": { "type": "array", "description": "List of user UIDs participating" },
+        "isPublic": { "type": "boolean", "description": "Whether public channel is discoverable" },
+        "onlyAdminsCanMessage": { "type": "boolean", "description": "Restrict sending messages to admins only" },
+        "onlyAdminsCanEdit": { "type": "boolean", "description": "Restrict editing info to admins only" },
         "lastMessage": { "type": "string", "maxLength": 1000, "description": "Preview of last message text" },
         "lastMessageTime": { "type": "string", "description": "Timestamp of last message" },
         "lastSenderId": { "type": "string", "description": "UID of the last message author" },
@@ -48,7 +51,8 @@
         "senderName": { "type": "string", "maxLength": 100, "description": "Author display name" },
         "senderPhotoUrl": { "type": "string", "maxLength": 250000, "description": "Author photo URL" },
         "text": { "type": "string", "maxLength": 5000, "description": "Message text or caption" },
-        "type": { "type": "string", "enum": ["text", "image", "video", "audio", "document", "call_log"], "description": "Message category" },
+        "type": { "type": "string", "enum": ["text", "image", "video", "audio", "document", "call_log", "poll", "payment"], "description": "Message category" },
+        "isPublicChannel": { "type": "boolean", "description": "Whether message belongs to a public channel" },
         "mediaUrl": { "type": "string", "maxLength": 750000, "description": "Attached media URL" },
         "fileName": { "type": "string", "maxLength": 255, "description": "File attachment name" },
         "fileSize": { "type": "string", "description": "Formatted file size" },
@@ -158,6 +162,47 @@
         "createdAt": { "type": "string", "description": "Creation timestamp" }
       },
       "required": ["id", "reporterId", "reportedUserId", "reason"]
+    },
+    "DeviceSession": {
+      "title": "DeviceSession",
+      "description": "Active multi-device session record for phone, tablet, or desktop web",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique session ID" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "deviceId": { "type": "string", "description": "Persistent device identifier" },
+        "deviceName": { "type": "string", "maxLength": 120, "description": "Human-readable device label" },
+        "platform": { "type": "string", "enum": ["android", "desktop", "tablet", "mobile_web"], "description": "Device platform" },
+        "browserInfo": { "type": "string", "maxLength": 200, "description": "OS/Browser agent info" },
+        "lastActive": { "type": "string", "description": "ISO timestamp of last activity" },
+        "createdAt": { "type": "string", "description": "Session creation timestamp" },
+        "revoked": { "type": "boolean", "description": "Whether session was remotely signed out" }
+      },
+      "required": ["id", "userId", "deviceId", "deviceName", "platform"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Peer-to-peer in-chat payment or money request record (JazzCash, Easypaisa, SadaPay, NayaPay, Raast)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique payment transaction ID" },
+        "chatId": { "type": "string", "description": "Associated chat ID" },
+        "senderId": { "type": "string", "description": "Initiator UID" },
+        "senderName": { "type": "string", "maxLength": 100, "description": "Initiator display name" },
+        "receiverId": { "type": "string", "description": "Counterparty UID" },
+        "receiverName": { "type": "string", "maxLength": 100, "description": "Counterparty display name" },
+        "amount": { "type": "number", "description": "Transaction amount in PKR" },
+        "currency": { "type": "string", "enum": ["PKR"], "description": "Currency code" },
+        "method": { "type": "string", "enum": ["jazzcash", "easypaisa", "sadapay", "nayapay", "raast"], "description": "Local payment rail" },
+        "kind": { "type": "string", "enum": ["send", "request"], "description": "Whether direct payment or request" },
+        "status": { "type": "string", "enum": ["pending", "sent", "completed", "declined"], "description": "Settlement status" },
+        "accountNumber": { "type": "string", "maxLength": 64, "description": "Wallet number or IBAN" },
+        "referenceId": { "type": "string", "maxLength": 80, "description": "TID or receipt reference" },
+        "note": { "type": "string", "maxLength": 200, "description": "Optional payment note" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last update timestamp" }
+      },
+      "required": ["id", "chatId", "senderId", "receiverId", "amount", "currency", "method", "kind", "status"]
     }
   },
   "firestore": {
@@ -196,6 +241,14 @@
     "/reports/{reportId}": {
       "schema": { "$ref": "#/entities/Report" },
       "description": "User moderation reports and tickets"
+    },
+    "/device_sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/DeviceSession" },
+      "description": "Active multi-device sessions per user"
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "In-app P2P payment & money request ledger"
     }
   }
 }

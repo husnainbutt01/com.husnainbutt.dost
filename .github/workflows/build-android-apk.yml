@@ -11,6 +11,8 @@ jobs:
   build-apk:
     name: Build Android APK
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -65,3 +67,18 @@ jobs:
           name: DOST-Messaging-App-APK
           path: DOST-Messaging-App.apk
           retention-days: 30
+
+      - name: Publish Direct APK to GitHub Releases (Public 1-Click Download)
+        uses: softprops/action-gh-release@v2
+        continue-on-error: true
+        with:
+          tag_name: v1.0.0-latest
+          name: DOST Messaging App v1.0.0 (Android APK)
+          body: |
+            DOST Messaging App (Developed by Husnain Butt)
+            Direct Android APK download — no GitHub login or unzip needed!
+            Tap `DOST-Messaging-App.apk` below to download and install on Android.
+          files: DOST-Messaging-App.apk
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

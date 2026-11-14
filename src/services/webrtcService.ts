@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   setDoc,
   updateDoc,
   addDoc,
@@ -10,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { sounds } from '../utils/soundEffects';
+import { notificationService } from './notificationService';
 import { CallSession } from '../types';
 
 const RTC_CONFIG: RTCConfiguration = {
@@ -26,6 +28,7 @@ export class WebRTCService {
   private ringInterval: number | null = null;
   private callTimerInterval: number | null = null;
   private currentSession: CallSession | null = null;
+  private latestIncomingSession: CallSession | null = null;
   private onStateChangeCallback: ((session: CallSession | null) => void) | null = null;
   private onIncomingCallCallback: ((session: CallSession | null) => void) | null = null;
   private callDocUnsub: (() => void) | null = null;
@@ -64,10 +67,14 @@ export class WebRTCService {
           // Ignore stale calls older than 60s
           const ageMs = Date.now() - new Date(latest.createdAt || 0).getTime();
           if (ageMs < 60000) {
+            this.latestIncomingSession = latest;
             sounds.playRingPulse();
+            void notificationService.notifyIncomingCall(latest);
             this.onIncomingCallCallback?.(latest);
           }
         } else if (incomingDocs.length === 0) {
+          this.latestIncomingSession = null;
+          void notificationService.cancelCallNotification();
           this.onIncomingCallCallback?.(null);
         }
       }, (err) => {
@@ -76,11 +83,37 @@ export class WebRTCService {
     } catch {}
   }
 
+  getLatestIncomingCall(callId?: string): CallSession | null {
+    if (!this.latestIncomingSession) return null;
+    if (callId && this.latestIncomingSession.id !== callId) return null;
+    return this.latestIncomingSession;
+  }
+
+  async answerCallById(callId?: string) {
+    const cached = this.getLatestIncomingCall(callId);
+    if (cached) {
+      await this.answerCall(cached);
+      return;
+    }
+    if (!callId) return;
+    try {
+      const snap = await getDoc(doc(db, 'calls', callId));
+      if (snap.exists()) {
+        const session = snap.data() as CallSession;
+        if (session.status === 'calling' || session.status === 'ringing') {
+          await this.answerCall(session);
+        }
+      }
+    } catch {}
+  }
+
   stopListeningForIncomingCalls() {
     if (this.incomingUnsub) {
       this.incomingUnsub();
       this.incomingUnsub = null;
     }
+    this.latestIncomingSession = null;
+    void notificationService.cancelCallNotification();
   }
 
   getCurrentSession(): CallSession | null {
@@ -222,6 +255,8 @@ export class WebRTCService {
   }
 
   async answerCall(incomingSession: CallSession) {
+    this.latestIncomingSession = null;
+    void notificationService.cancelCallNotification();
     this.onIncomingCallCallback?.(null);
 
     try {
@@ -286,6 +321,8 @@ export class WebRTCService {
   }
 
   async rejectCall(callId: string) {
+    this.latestIncomingSession = null;
+    void notificationService.cancelCallNotification();
     this.onIncomingCallCallback?.(null);
     sounds.playCallEnded();
     try {
@@ -374,6 +411,8 @@ export class WebRTCService {
   }
 
   private cleanupCallLocally(finalStatus: CallSession['status']) {
+    this.latestIncomingSession = null;
+    void notificationService.cancelCallNotification();
     if (this.ringInterval) {
       clearInterval(this.ringInterval);
       this.ringInterval = null;

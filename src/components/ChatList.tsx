@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Chat, User } from '../types';
 import { chatStore } from '../services/chatService';
+import { ChatThemeConfig, themeService } from '../services/themeService';
+import { securityService } from '../services/securityService';
 import {
   Search,
   Pin,
@@ -13,6 +15,9 @@ import {
   MoreVertical,
   X,
   MessageSquare,
+  Megaphone,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 
 interface ChatListProps {
@@ -23,6 +28,7 @@ interface ChatListProps {
   currentUser: User | null;
   onNewChat: () => void;
   onNewGroup: () => void;
+  onOpenChannelsBroadcast: () => void;
 }
 
 export const ChatList: React.FC<ChatListProps> = ({
@@ -33,17 +39,28 @@ export const ChatList: React.FC<ChatListProps> = ({
   currentUser,
   onNewChat,
   onNewGroup,
+  onOpenChannelsBroadcast,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'unread' | 'groups' | 'archived'>('all');
+  const [filter, setFilter] = useState<'all' | 'unread' | 'groups' | 'channels' | 'locked' | 'archived'>('all');
   const [menuChatId, setMenuChatId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [registeredUsers, setRegisteredUsers] = useState<User[]>(chatStore.getUsers());
+  const [chatTheme, setChatTheme] = useState<ChatThemeConfig>(themeService.getTheme());
+  const [lockedIds, setLockedIds] = useState<string[]>(securityService.getLockedChatIds());
 
   useEffect(() => {
     const syncUsers = () => setRegisteredUsers(chatStore.getUsers());
     syncUsers();
     return chatStore.subscribe(syncUsers);
+  }, []);
+
+  useEffect(() => {
+    return themeService.subscribe(() => setChatTheme(themeService.getTheme()));
+  }, []);
+
+  useEffect(() => {
+    return securityService.subscribe(() => setLockedIds(securityService.getLockedChatIds()));
   }, []);
 
   const archivedChats = chatStore.getChats(true);
@@ -56,13 +73,17 @@ export const ChatList: React.FC<ChatListProps> = ({
   };
 
   const getChatTitle = (chat: Chat): string => {
-    if (chat.type === 'group') return chat.name || 'Group Chat';
+    if (chat.type === 'group' || chat.type === 'channel' || chat.type === 'broadcast') {
+      return chat.name || 'DOST Chat';
+    }
     const partner = getChatPartner(chat);
     return partner ? partner.displayName : 'DOST User';
   };
 
   const getChatAvatar = (chat: Chat): string => {
-    if (chat.type === 'group') return chat.photoUrl || '/assets/aistudio/download_7eb2aac4.jpeg';
+    if (chat.type === 'group' || chat.type === 'channel' || chat.type === 'broadcast') {
+      return chat.photoUrl || '/assets/aistudio/download_7eb2aac4.jpeg';
+    }
     const partner = getChatPartner(chat);
     if (partner?.privacySettings?.profilePhotoVisibility === 'nobody') {
       return `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(partner.displayName)}`;
@@ -71,7 +92,7 @@ export const ChatList: React.FC<ChatListProps> = ({
   };
 
   const isPartnerOnline = (chat: Chat): boolean => {
-    if (chat.type === 'group') return false;
+    if (chat.type !== 'private') return false;
     const partner = getChatPartner(chat);
     if (!partner) return false;
     if (partner.privacySettings?.lastSeenVisibility === 'nobody') return false;
@@ -99,9 +120,17 @@ export const ChatList: React.FC<ChatListProps> = ({
   const trimmedQuery = searchQuery.trim().toLowerCase();
 
   const filteredChats = sourceChats.filter((chat) => {
+    const isLocked = lockedIds.includes(chat.id);
+    if (filter === 'locked') {
+      if (!isLocked) return false;
+    } else if (isLocked && !trimmedQuery) {
+      return false;
+    }
+
     const unreadCount = chatStore.getUnreadCountForChat(chat.id);
     if (filter === 'unread' && unreadCount === 0) return false;
     if (filter === 'groups' && chat.type !== 'group') return false;
+    if (filter === 'channels' && chat.type !== 'channel' && chat.type !== 'broadcast') return false;
 
     if (!trimmedQuery) return true;
     const title = getChatTitle(chat).toLowerCase();
@@ -135,23 +164,54 @@ export const ChatList: React.FC<ChatListProps> = ({
     : [];
 
   return (
-    <div className="flex flex-col h-full bg-white border-r border-slate-200 w-full md:w-80 lg:w-96 shrink-0 select-none relative">
+    <div
+      className={`flex flex-col h-full border-r w-full md:w-80 lg:w-96 shrink-0 select-none relative transition-colors ${
+        chatTheme.isDark
+          ? 'bg-[#0B1812] border-emerald-400/12 text-slate-100'
+          : 'bg-white border-slate-200 text-slate-800'
+      }`}
+    >
       {/* Top Header */}
-      <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+      <div
+        className={`p-4 border-b flex items-center justify-between ${
+          chatTheme.isDark ? 'border-emerald-400/10' : 'border-slate-100'
+        }`}
+      >
         <div>
-          <h1 className="text-xl font-bold text-slate-800 font-['Outfit'] flex items-center gap-2">
+          <h1
+            className={`text-xl font-bold font-['Outfit'] flex items-center gap-2 ${
+              chatTheme.isDark ? 'text-white' : 'text-slate-800'
+            }`}
+          >
             <span>Chats</span>
-            <span className="text-xs bg-emerald-100 text-emerald-800 font-medium px-2 py-0.5 rounded-full">
-              {sourceChats.length}
+            <span className="text-xs font-semibold text-emerald-600">
+              · {sourceChats.length}
             </span>
           </h1>
-          <p className="text-[11px] text-slate-400">DOST Messaging App · Husnain Butt</p>
+          <p className={`text-[11px] ${chatTheme.isDark ? 'text-emerald-200/50' : 'text-slate-400'}`}>
+            DOST Messaging App · Husnain Butt
+          </p>
         </div>
 
         <div className="flex items-center gap-1">
           <button
+            onClick={onOpenChannelsBroadcast}
+            className={`p-2 rounded-xl transition-colors cursor-pointer ${
+              chatTheme.isDark
+                ? 'text-emerald-200/80 hover:text-emerald-300 hover:bg-emerald-500/15'
+                : 'text-slate-600 hover:text-emerald-700 hover:bg-emerald-50'
+            }`}
+            title="Channels & Broadcast Lists"
+          >
+            <Megaphone className="w-5 h-5" />
+          </button>
+          <button
             onClick={onNewGroup}
-            className="p-2 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition-colors cursor-pointer"
+            className={`p-2 rounded-xl transition-colors cursor-pointer ${
+              chatTheme.isDark
+                ? 'text-emerald-200/80 hover:text-emerald-300 hover:bg-emerald-500/15'
+                : 'text-slate-600 hover:text-emerald-700 hover:bg-emerald-50'
+            }`}
             title="Create New Group"
           >
             <Users className="w-5 h-5" />
@@ -167,7 +227,7 @@ export const ChatList: React.FC<ChatListProps> = ({
       </div>
 
       {/* Search Input */}
-      <div className="p-3 border-b border-slate-100">
+      <div className={`p-3 border-b ${chatTheme.isDark ? 'border-emerald-400/10' : 'border-slate-100'}`}>
         <div className="relative">
           <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
           <input
@@ -175,7 +235,11 @@ export const ChatList: React.FC<ChatListProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search chats or registered user name..."
-            className="w-full pl-9 pr-8 py-2 bg-slate-100 focus:bg-white rounded-xl text-xs text-slate-800 placeholder-slate-400 border border-transparent focus:border-emerald-500 focus:outline-none transition-all"
+            className={`w-full pl-9 pr-8 py-2 rounded-xl text-xs placeholder-slate-400 border border-transparent focus:border-emerald-500 focus:outline-none transition-all ${
+              chatTheme.isDark
+                ? 'bg-[#12261D] focus:bg-[#173025] text-slate-100'
+                : 'bg-slate-100 focus:bg-white text-slate-800'
+            }`}
           />
           {searchQuery && (
             <button
@@ -196,6 +260,8 @@ export const ChatList: React.FC<ChatListProps> = ({
               { id: 'all', label: 'All' },
               { id: 'unread', label: 'Unread' },
               { id: 'groups', label: 'Groups' },
+              { id: 'channels', label: 'Channels' },
+              ...(lockedIds.length > 0 ? [{ id: 'locked' as const, label: `Locked (${lockedIds.length})` }] : []),
               { id: 'archived', label: `Archived (${archivedChats.length})` },
             ] as const
           ).map((tab) => (
@@ -203,7 +269,11 @@ export const ChatList: React.FC<ChatListProps> = ({
               key={tab.id}
               onClick={() => setFilter(tab.id)}
               className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
-                filter === tab.id ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+                filter === tab.id
+                  ? 'bg-emerald-600 text-white'
+                  : chatTheme.isDark
+                  ? 'text-emerald-100/70 hover:bg-emerald-500/15'
+                  : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
               {tab.label}
@@ -213,7 +283,11 @@ export const ChatList: React.FC<ChatListProps> = ({
       </div>
 
       {/* Chats Scrollable List */}
-      <div className="flex-1 overflow-y-auto divide-y divide-slate-50 pb-16 md:pb-0">
+      <div
+        className={`flex-1 overflow-y-auto pb-16 md:pb-0 p-1.5 space-y-0.5 ${
+          chatTheme.isDark ? 'divide-emerald-400/5' : 'divide-slate-50'
+        }`}
+      >
         {filteredChats.length === 0 && matchedRegisteredUsers.length === 0 ? (
           <div className="p-8 text-center text-slate-400 flex flex-col items-center justify-center h-48">
             <MessageSquarePlus className="w-10 h-10 text-slate-300 mb-2 stroke-1" />
@@ -250,9 +324,13 @@ export const ChatList: React.FC<ChatListProps> = ({
                 <div
                   key={chat.id}
                   onClick={() => onSelectChat(chat)}
-                  className={`relative flex items-center gap-3 p-3.5 transition-all cursor-pointer group ${
+                  className={`relative flex items-center gap-3 p-3 rounded-2xl transition-all cursor-pointer group ${
                     isActive
-                      ? 'bg-emerald-50/70 border-l-4 border-emerald-600'
+                      ? chatTheme.isDark
+                        ? 'bg-emerald-500/15 ring-1 ring-emerald-400/25'
+                        : 'bg-emerald-50/90 ring-1 ring-emerald-500/20'
+                      : chatTheme.isDark
+                      ? 'hover:bg-emerald-500/8'
                       : 'hover:bg-slate-50'
                   }`}
                 >
@@ -261,7 +339,7 @@ export const ChatList: React.FC<ChatListProps> = ({
                   <img
                     src={avatar}
                     alt={title}
-                    className="w-12 h-12 rounded-full object-cover border border-slate-200"
+                    className="w-12 h-12 rounded-full object-cover border border-slate-200/70"
                   />
                   {isOnline && (
                     <span
@@ -274,12 +352,38 @@ export const ChatList: React.FC<ChatListProps> = ({
                       GRP
                     </span>
                   )}
+                  {chat.type === 'channel' && (
+                    <span className="absolute -bottom-1 -left-1 bg-sky-700 text-white text-[9px] px-1 py-0.2 rounded font-semibold">
+                      CH
+                    </span>
+                  )}
+                  {chat.type === 'broadcast' && (
+                    <span className="absolute -bottom-1 -left-1 bg-amber-600 text-white text-[9px] px-1 py-0.2 rounded font-semibold">
+                      BC
+                    </span>
+                  )}
+                  {lockedIds.includes(chat.id) && (
+                    <span
+                      className="absolute -top-1 -right-1 w-5 h-5 bg-slate-900 text-emerald-300 rounded-full flex items-center justify-center border border-white"
+                      title="Locked Chat"
+                    >
+                      <Lock className="w-2.5 h-2.5" />
+                    </span>
+                  )}
                 </div>
 
                 {/* Content Details */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-1">
-                    <span className={`text-sm font-semibold truncate ${isActive ? 'text-emerald-950' : 'text-slate-800'}`}>
+                    <span
+                      className={`text-sm font-semibold truncate ${
+                        chatTheme.isDark
+                          ? 'text-white'
+                          : isActive
+                          ? 'text-emerald-950'
+                          : 'text-slate-800'
+                      }`}
+                    >
                       {title}
                     </span>
                     <span className="text-[11px] text-slate-400 font-mono shrink-0 ml-2">
@@ -359,6 +463,29 @@ export const ChatList: React.FC<ChatListProps> = ({
                     >
                       <Archive className="w-3.5 h-3.5" />
                       <span>{isArchived ? 'Unarchive' : 'Archive Chat'}</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (lockedIds.includes(chat.id)) {
+                          securityService.unlockChat(chat.id);
+                        } else {
+                          securityService.lockChat(chat.id);
+                        }
+                        setMenuChatId(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 rounded-xl flex items-center gap-2 cursor-pointer"
+                    >
+                      {lockedIds.includes(chat.id) ? (
+                        <>
+                          <Unlock className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Unlock Chat</span>
+                        </>
+                      ) : (
+                        <>
+                          <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Lock Chat</span>
+                        </>
+                      )}
                     </button>
                     <div className="my-1 border-t border-slate-100" />
                     <button

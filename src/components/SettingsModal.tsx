@@ -1,8 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User } from '../types';
+import { User, DeviceSession, PaymentMethod, PaymentTransaction } from '../types';
 import { chatStore } from '../services/chatService';
 import { authService } from '../services/firebaseAuth';
+import { Capacitor } from '@capacitor/core';
 import { uploadMediaFile } from '../services/storageService';
+import { notificationService, NativePermissionStatus } from '../services/notificationService';
+import { CHAT_THEMES, ChatThemeId, themeService } from '../services/themeService';
+import { securityService } from '../services/securityService';
+import { deviceSessionService } from '../services/deviceSessionService';
+import { PAYMENT_RAILS, formatPKR, paymentService } from '../services/paymentService';
 import { PWAInstallButton } from './PWAInstallButton';
 import {
   User as UserIcon,
@@ -15,6 +21,19 @@ import {
   UserX,
   Camera,
   Loader2,
+  BatteryCharging,
+  Radio,
+  Palette,
+  Fingerprint,
+  Laptop,
+  Smartphone,
+  Tablet,
+  KeyRound,
+  Copy,
+  LogOut,
+  Banknote,
+  ArrowUpRight,
+  ArrowDownLeft,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -32,7 +51,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onOpenAdmin,
   onSignOut,
 }) => {
-  const [activeTab, setActiveTab] = useState<'profile' | 'privacy' | 'notifications' | 'about'>('profile');
+  const [activeTab, setActiveTab] = useState<
+    'profile' | 'theme' | 'security' | 'devices' | 'payments' | 'privacy' | 'notifications' | 'about'
+  >('profile');
+  const [selectedThemeId, setSelectedThemeId] = useState<ChatThemeId>(themeService.getThemeId());
 
   // Profile state
   const [displayName, setDisplayName] = useState(currentUser?.displayName || '');
@@ -41,6 +63,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [photoUrl, setPhotoUrl] = useState(currentUser?.photoUrl || '');
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState('');
+
+  // Security & Lock state
+  const [appLockOn, setAppLockOn] = useState(securityService.isAppLockEnabled());
+  const [biometricOn, setBiometricOn] = useState(securityService.isBiometricEnabled());
+  const [hasPin, setHasPin] = useState(securityService.hasPin());
+  const [lockedChatIds, setLockedChatIds] = useState<string[]>(securityService.getLockedChatIds());
+  const [bioSupport, setBioSupport] = useState<{ available: boolean; label: string }>({
+    available: false,
+    label: 'PIN Lock',
+  });
+  const [newPin, setNewPin] = useState('');
+
+  // Multi-device & DOST Pay state
+  const [deviceSessions, setDeviceSessions] = useState<DeviceSession[]>(deviceSessionService.getSessions());
+  const [payMethod, setPayMethod] = useState<PaymentMethod>(
+    currentUser?.paymentAccount?.method || 'jazzcash'
+  );
+  const [payNumber, setPayNumber] = useState(currentUser?.paymentAccount?.accountNumber || '');
+  const [payTitle, setPayTitle] = useState(currentUser?.paymentAccount?.accountTitle || '');
+  const [transactions, setTransactions] = useState<PaymentTransaction[]>(paymentService.getTransactions());
 
   // Privacy state
   const [lastSeen, setLastSeen] = useState<'everyone' | 'contacts' | 'nobody'>(
@@ -53,27 +95,63 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     currentUser?.privacySettings?.profilePhotoVisibility || 'everyone'
   );
 
-  // Notification state
+  // Notification & Background state
   const [soundsOn, setSoundsOn] = useState(currentUser?.notificationSettings?.messageSounds ?? true);
   const [ringtonesOn, setRingtonesOn] = useState(currentUser?.notificationSettings?.callRingtones ?? true);
   const [alertsOn, setAlertsOn] = useState(currentUser?.notificationSettings?.inAppAlerts ?? true);
+  const [bgRunningOn, setBgRunningOn] = useState(notificationService.isBackgroundEnabled());
+  const [permStatus, setPermStatus] = useState<NativePermissionStatus | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const blockedUsers = chatStore.getBlockedUsers();
 
   useEffect(() => {
-    if (isOpen && currentUser) {
+    if (!isOpen) return;
+    setAppLockOn(securityService.isAppLockEnabled());
+    setBiometricOn(securityService.isBiometricEnabled());
+    setHasPin(securityService.hasPin());
+    setLockedChatIds(securityService.getLockedChatIds());
+    setDeviceSessions(deviceSessionService.getSessions());
+    securityService.checkBiometricSupport().then(setBioSupport).catch(() => {});
+
+    const unsubSec = securityService.subscribe(() => {
+      setAppLockOn(securityService.isAppLockEnabled());
+      setBiometricOn(securityService.isBiometricEnabled());
+      setHasPin(securityService.hasPin());
+      setLockedChatIds(securityService.getLockedChatIds());
+    });
+    const unsubDev = deviceSessionService.subscribe(() => {
+      setDeviceSessions(deviceSessionService.getSessions());
+    });
+    setTransactions(paymentService.getTransactions());
+    const unsubPay = paymentService.subscribe(() => {
+      setTransactions(paymentService.getTransactions());
+    });
+
+    if (currentUser) {
       setDisplayName(currentUser.displayName || '');
       setBio(currentUser.bio || '');
       setPhone(currentUser.phoneNumber || '');
       setPhotoUrl(currentUser.photoUrl || '');
+      setPayMethod(currentUser.paymentAccount?.method || 'jazzcash');
+      setPayNumber(currentUser.paymentAccount?.accountNumber || currentUser.phoneNumber || '');
+      setPayTitle(currentUser.paymentAccount?.accountTitle || currentUser.displayName || '');
       setLastSeen(currentUser.privacySettings?.lastSeenVisibility || 'everyone');
       setReadReceipts(currentUser.privacySettings?.readReceipts ?? true);
       setProfileVisibility(currentUser.privacySettings?.profilePhotoVisibility || 'everyone');
       setSoundsOn(currentUser.notificationSettings?.messageSounds ?? true);
       setRingtonesOn(currentUser.notificationSettings?.callRingtones ?? true);
       setAlertsOn(currentUser.notificationSettings?.inAppAlerts ?? true);
+      setBgRunningOn(notificationService.isBackgroundEnabled());
+      setSelectedThemeId(themeService.getThemeId());
+      notificationService.getPermissionStatus().then(setPermStatus).catch(() => {});
     }
+
+    return () => {
+      unsubSec();
+      unsubDev();
+      unsubPay();
+    };
   }, [isOpen, currentUser]);
 
   if (!isOpen) return null;
@@ -158,6 +236,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <nav className="space-y-1 flex md:block gap-1 overflow-x-auto">
               {[
                 { id: 'profile', label: 'My Profile', icon: UserIcon },
+                { id: 'theme', label: 'Chat Theme', icon: Palette },
+                { id: 'security', label: 'App & Chat Lock', icon: Fingerprint },
+                { id: 'devices', label: 'Linked Devices', icon: Laptop },
+                { id: 'payments', label: 'DOST Pay', icon: Banknote },
                 { id: 'privacy', label: 'Privacy', icon: Lock },
                 { id: 'notifications', label: 'Notifications', icon: Bell },
                 { id: 'about', label: 'About', icon: Info },
@@ -168,7 +250,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id as any)}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left whitespace-nowrap ${
+                    className={`shrink-0 md:w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left whitespace-nowrap ${
                       isActive
                         ? 'bg-emerald-600 text-white shadow-xs'
                         : 'text-slate-600 hover:bg-slate-200/60'
@@ -353,6 +435,499 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </form>
           )}
 
+          {/* Chat Theme Tab */}
+          {activeTab === 'theme' && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 font-['Outfit']">Chat Appearance</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Customize conversation background, header style, and message bubbles
+                </p>
+              </div>
+
+              <div className="space-y-2.5">
+                {(Object.keys(CHAT_THEMES) as ChatThemeId[]).map((id) => {
+                  const t = CHAT_THEMES[id];
+                  const isActive = selectedThemeId === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => {
+                        themeService.setTheme(id);
+                        setSelectedThemeId(id);
+                        showSavedToast(`${t.name} theme applied!`);
+                      }}
+                      className={`w-full flex items-center justify-between gap-3 p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                        isActive
+                          ? 'border-emerald-500 bg-emerald-50/70 ring-1 ring-emerald-500/30'
+                          : 'border-slate-200/80 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div
+                          className="w-10 h-10 rounded-xl shrink-0 border border-black/10 flex items-center justify-center relative overflow-hidden"
+                          style={{ backgroundColor: t.swatchCanvas }}
+                        >
+                          <span
+                            className="w-4.5 h-3 rounded-md shadow-xs translate-x-1 -translate-y-1"
+                            style={{ backgroundColor: t.swatchPrimary }}
+                          />
+                          <span
+                            className={`w-4 h-2.5 rounded-md shadow-xs -translate-x-1 translate-y-1.5 ${
+                              t.isDark ? 'bg-[#13261D] border border-emerald-400/20' : 'bg-white border border-black/10'
+                            }`}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-800 truncate">{t.name}</p>
+                          <p className="text-[11px] text-slate-500 truncate">{t.subtitle}</p>
+                        </div>
+                      </div>
+                      {isActive && (
+                        <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                          <Check className="w-3 h-3" />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Security & Lock Tab */}
+          {activeTab === 'security' && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 font-['Outfit']">
+                  App Lock & Chat Lock
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Protect DOST and individual chats with Fingerprint, Face ID, or a 4-digit PIN
+                </p>
+              </div>
+
+              {/* 4-Digit PIN Setup / Update */}
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const clean = newPin.replace(/\D/g, '').slice(0, 4);
+                  if (clean.length !== 4) return;
+                  await securityService.setPin(clean);
+                  setNewPin('');
+                  showSavedToast(hasPin ? '4-digit PIN updated!' : '4-digit PIN saved!');
+                }}
+                className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <KeyRound className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>{hasPin ? 'Change 4-Digit Security PIN' : 'Set 4-Digit Security PIN'}</span>
+                  </span>
+                  {hasPin && (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      PIN Active
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={newPin}
+                    onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="Enter 4 digits (e.g. 1234)"
+                    className="flex-1 px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:border-emerald-500 font-mono tracking-widest"
+                  />
+                  <button
+                    type="submit"
+                    disabled={newPin.length !== 4}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl cursor-pointer disabled:opacity-50"
+                  >
+                    {hasPin ? 'Update' : 'Save PIN'}
+                  </button>
+                </div>
+              </form>
+
+              {/* App Lock & Biometric Toggles */}
+              <div className="space-y-3 divide-y divide-slate-100 text-xs">
+                <div className="pt-2 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-slate-800">Lock Whole App (App Lock)</p>
+                    <p className="text-[11px] text-slate-500">
+                      Require Fingerprint, Face ID, or PIN whenever opening DOST
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={appLockOn}
+                    onChange={async (e) => {
+                      const next = e.target.checked;
+                      if (next && !hasPin && !bioSupport.available) {
+                        showSavedToast('Set a 4-digit PIN above first');
+                        return;
+                      }
+                      securityService.setAppLockEnabled(next);
+                      showSavedToast(next ? 'App Lock enabled!' : 'App Lock disabled');
+                    }}
+                    className="w-4 h-4 accent-emerald-600 cursor-pointer shrink-0"
+                  />
+                </div>
+
+                <div className="pt-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-slate-800 flex items-center gap-1.5">
+                      <Fingerprint className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>{bioSupport.label}</span>
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      {bioSupport.available
+                        ? 'Allow native Fingerprint / Face ID unlock on app & locked chats'
+                        : 'Enroll biometric or use your 4-digit PIN above'}
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={biometricOn}
+                    onChange={async (e) => {
+                      const next = e.target.checked;
+                      if (next) {
+                        const res = await securityService.authenticateBiometric({
+                          title: 'Enable Biometric Lock',
+                          subtitle: 'Verify your fingerprint or face ID',
+                          userLabel: currentUser?.email,
+                        });
+                        if (res.success) {
+                          securityService.setBiometricEnabled(true);
+                          showSavedToast('Biometric unlock verified!');
+                        } else {
+                          showSavedToast(res.error || 'Biometric verification cancelled');
+                        }
+                      } else {
+                        securityService.setBiometricEnabled(false);
+                        showSavedToast('Biometric unlock turned off');
+                      }
+                    }}
+                    className="w-4 h-4 accent-emerald-600 cursor-pointer shrink-0"
+                  />
+                </div>
+              </div>
+
+              {/* Locked Chats Status */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-900">
+                    Locked Chats ({lockedChatIds.length})
+                  </span>
+                  {lockedChatIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        lockedChatIds.forEach((id) => securityService.unlockChat(id));
+                        showSavedToast('All chats unlocked');
+                      }}
+                      className="text-[11px] font-semibold text-emerald-700 hover:underline cursor-pointer"
+                    >
+                      Unlock All
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-emerald-800/80 leading-relaxed">
+                  You can lock any specific chat from its chat header menu or chat list menu. Locked chats stay hidden under the &ldquo;Locked&rdquo; filter tab until unlocked with Fingerprint or PIN.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Linked Devices Tab (Multi-Device Support) */}
+          {activeTab === 'devices' && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 font-['Outfit']">
+                  Linked Devices (Multi-Device)
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Use the same DOST account simultaneously on your Phone APK, Laptop Web, and Tablet
+                </p>
+              </div>
+
+              {/* Link Another Device Banner */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200/80 space-y-2">
+                <p className="text-xs font-bold text-emerald-900">Link Phone, Laptop, or Tablet</p>
+                <p className="text-[11px] text-emerald-800/85 leading-relaxed">
+                  Open DOST on your laptop or tablet browser and sign in with{' '}
+                  <span className="font-semibold">{currentUser?.email || 'your account'}</span>. All messages, polls, and groups sync instantly across all devices.
+                </p>
+                {typeof window !== 'undefined' && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <code className="flex-1 px-2.5 py-1.5 rounded-xl bg-white border border-emerald-200 text-[10px] text-slate-700 truncate font-mono">
+                      {window.location.origin}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(window.location.origin);
+                        showSavedToast('DOST Web link copied!');
+                      }}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold rounded-xl flex items-center gap-1 cursor-pointer shrink-0"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>Copy Link</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Active Devices List */}
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-slate-700">
+                  Active Sessions ({deviceSessions.length})
+                </p>
+                {deviceSessions.length === 0 ? (
+                  <p className="text-xs text-slate-400">
+                    Sign in to track connected devices in real time.
+                  </p>
+                ) : (
+                  deviceSessions.map((sess) => {
+                    const isCurrent = sess.deviceId === deviceSessionService.getCurrentDeviceId();
+                    const DevIcon =
+                      sess.platform === 'tablet'
+                        ? Tablet
+                        : sess.platform === 'desktop'
+                        ? Laptop
+                        : Smartphone;
+                    return (
+                      <div
+                        key={sess.id}
+                        className={`flex items-center justify-between gap-3 p-3 rounded-2xl border ${
+                          isCurrent
+                            ? 'border-emerald-400 bg-emerald-50/50'
+                            : 'border-slate-200/80 bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                            <DevIcon className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-xs font-bold text-slate-800 truncate">
+                                {sess.deviceName}
+                              </p>
+                              {isCurrent && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-600 text-white">
+                                  This Device
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-slate-500 truncate">
+                              {sess.browserInfo} · Last active{' '}
+                              {new Date(sess.lastActive).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </p>
+                          </div>
+                        </div>
+
+                        {!isCurrent && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await deviceSessionService.revokeDeviceSession(sess.id);
+                              showSavedToast(`Signed out ${sess.deviceName}`);
+                            }}
+                            className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-[11px] font-semibold flex items-center gap-1 cursor-pointer shrink-0"
+                            title="Log out this device remotely"
+                          >
+                            <LogOut className="w-3 h-3" />
+                            <span>Log Out</span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* DOST Pay (In-App Payments & Ledger) Tab */}
+          {activeTab === 'payments' && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 font-['Outfit']">
+                  DOST Pay · In-Chat Payments
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Save your JazzCash, Easypaisa, SadaPay, NayaPay, or Raast IBAN so friends can pay you directly inside chat
+                </p>
+              </div>
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!payNumber.trim()) return;
+                  await chatStore.updateProfile({
+                    paymentAccount: {
+                      method: payMethod,
+                      accountNumber: payNumber.trim(),
+                      accountTitle: payTitle.trim() || currentUser?.displayName || 'DOST User',
+                      updatedAt: new Date().toISOString(),
+                    },
+                  });
+                  showSavedToast('Receiving account saved!');
+                }}
+                className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3"
+              >
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                  {(Object.keys(PAYMENT_RAILS) as PaymentMethod[]).map((id) => {
+                    const rail = PAYMENT_RAILS[id];
+                    const active = payMethod === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setPayMethod(id)}
+                        className={`py-2 px-2 rounded-xl border text-[11px] font-bold transition-colors cursor-pointer truncate ${
+                          active
+                            ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        {rail.name}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Account Number / IBAN
+                    </label>
+                    <input
+                      type="text"
+                      value={payNumber}
+                      onChange={(e) => setPayNumber(e.target.value)}
+                      placeholder={PAYMENT_RAILS[payMethod].placeholder}
+                      className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Account Holder Title
+                    </label>
+                    <input
+                      type="text"
+                      value={payTitle}
+                      onChange={(e) => setPayTitle(e.target.value)}
+                      placeholder={currentUser?.displayName || 'Full Name'}
+                      className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
+                >
+                  Save Receiving Wallet
+                </button>
+              </form>
+
+              {/* Summary Strip */}
+              {(() => {
+                const myUid = currentUser?.id;
+                const sentTotal = transactions
+                  .filter((t) => t.senderId === myUid && (t.status === 'completed' || t.status === 'sent') && t.kind === 'send')
+                  .reduce((s, t) => s + t.amount, 0);
+                const receivedTotal = transactions
+                  .filter((t) => t.receiverId === myUid && t.status === 'completed')
+                  .reduce((s, t) => s + t.amount, 0);
+
+                return (
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200/80">
+                      <p className="text-[11px] text-emerald-800 font-semibold">Total Sent</p>
+                      <p className="text-base font-extrabold font-mono tabular-nums text-emerald-950 mt-0.5">
+                        {formatPKR(sentTotal)}
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
+                      <p className="text-[11px] text-slate-600 font-semibold">Total Received</p>
+                      <p className="text-base font-extrabold font-mono tabular-nums text-slate-900 mt-0.5">
+                        {formatPKR(receivedTotal)}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Recent Transactions */}
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-slate-700">
+                  Recent Chat Payments ({transactions.length})
+                </p>
+                {transactions.length === 0 ? (
+                  <p className="text-xs text-slate-400">
+                    Open any chat and tap Attach → DOST Pay to send or request money.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                    {transactions.map((tx) => {
+                      const isOutgoing =
+                        (tx.senderId === currentUser?.id && tx.kind === 'send') ||
+                        (tx.receiverId === currentUser?.id && tx.kind === 'request');
+                      const peerName =
+                        tx.senderId === currentUser?.id ? tx.receiverName : tx.senderName;
+                      return (
+                        <div
+                          key={tx.id}
+                          className="flex items-center justify-between gap-2 p-2.5 rounded-xl border border-slate-200/80 bg-white text-xs"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                                isOutgoing
+                                  ? 'bg-rose-50 text-rose-600'
+                                  : 'bg-emerald-50 text-emerald-700'
+                              }`}
+                            >
+                              {isOutgoing ? (
+                                <ArrowUpRight className="w-4 h-4" />
+                              ) : (
+                                <ArrowDownLeft className="w-4 h-4" />
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-bold text-slate-800 truncate">{peerName}</p>
+                              <p className="text-[10px] text-slate-500 truncate">
+                                {PAYMENT_RAILS[tx.method]?.name || tx.method} · {tx.status} ·{' '}
+                                {tx.referenceId || tx.id.slice(0, 8)}
+                              </p>
+                            </div>
+                          </div>
+                          <span
+                            className={`font-extrabold font-mono tabular-nums shrink-0 ${
+                              isOutgoing ? 'text-slate-800' : 'text-emerald-700'
+                            }`}
+                          >
+                            {isOutgoing ? '-' : '+'}
+                            {formatPKR(tx.amount)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Privacy Tab */}
           {activeTab === 'privacy' && (
             <div className="space-y-4">
@@ -465,8 +1040,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <div className="pt-3 flex items-center justify-between">
                   <div>
-                    <p className="font-semibold text-slate-800">In-App Alerts</p>
-                    <p className="text-[11px] text-slate-500">Display alert banner when notifications arrive</p>
+                    <p className="font-semibold text-slate-800">Phone Screen & In-App Alerts</p>
+                    <p className="text-[11px] text-slate-500">Show heads-up popup notifications on screen for messages & calls</p>
                   </div>
                   <input
                     type="checkbox"
@@ -474,6 +1049,84 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onChange={(e) => handleSaveNotifications({ inAppAlerts: e.target.checked })}
                     className="w-4 h-4 accent-emerald-600 cursor-pointer"
                   />
+                </div>
+
+                {Capacitor.isNativePlatform() && (
+                  <div className="pt-3 flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold text-slate-800 flex items-center gap-1.5">
+                        <Radio className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Background Running Process</span>
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Keeps DOST alive in background so calls & messages arrive instantly
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={bgRunningOn}
+                      onChange={async (e) => {
+                        const next = e.target.checked;
+                        setBgRunningOn(next);
+                        await notificationService.setBackgroundEnabled(next);
+                        showSavedToast(next ? 'Background service started!' : 'Background service stopped');
+                      }}
+                      className="w-4 h-4 accent-emerald-600 cursor-pointer"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-4 p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200/80 space-y-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-emerald-900">Phone Permissions & Alert Test</span>
+                  {permStatus && (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white text-emerald-700 border border-emerald-200">
+                      {permStatus.notifications ? 'Alerts Allowed' : 'Permission Needed'}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const status = await notificationService.requestPermissions();
+                      setPermStatus(status);
+                      await notificationService.startBackgroundService();
+                      showSavedToast('Permissions & background alerts updated!');
+                    }}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold rounded-xl cursor-pointer transition-colors"
+                  >
+                    Allow Alerts, Mic & Camera
+                  </button>
+
+                  {Capacitor.isNativePlatform() && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const status = await notificationService.requestBatteryUnrestricted();
+                        setPermStatus(status);
+                      }}
+                      className="px-3 py-1.5 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] font-semibold rounded-xl inline-flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <BatteryCharging className="w-3.5 h-3.5" />
+                      <span>
+                        {permStatus?.batteryUnrestricted ? 'Battery Unrestricted OK' : 'Allow Background Battery'}
+                      </span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await notificationService.sendTestNotification();
+                      showSavedToast('Test alert sent!');
+                    }}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-[11px] font-semibold rounded-xl cursor-pointer transition-colors"
+                  >
+                    Send Test Alert
+                  </button>
                 </div>
               </div>
             </div>

@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, Chat, CallSession } from './types';
 import { chatStore } from './services/chatService';
 import { authService } from './services/firebaseAuth';
 import { webrtcService } from './services/webrtcService';
 import { testConnection } from './services/firebase';
+import { notificationService } from './services/notificationService';
+import { securityService } from './services/securityService';
+import { deviceSessionService } from './services/deviceSessionService';
 
 import { SplashScreen } from './components/SplashScreen';
 import { NavigationSidebar, NavigationTab } from './components/NavigationSidebar';
@@ -18,6 +21,8 @@ import { GroupModal } from './components/GroupModal';
 import { SettingsModal } from './components/SettingsModal';
 import { AdminModal } from './components/AdminModal';
 import { NotificationsModal } from './components/NotificationsModal';
+import { LockScreenModal } from './components/LockScreenModal';
+import { ChannelsBroadcastModal } from './components/ChannelsBroadcastModal';
 import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { PWAInstallButton } from './components/PWAInstallButton';
@@ -44,9 +49,10 @@ export default function App() {
   // Toast notice
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
-  // Modals state
+  // Modals & Security state
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isGroupOpen, setIsGroupOpen] = useState(false);
+  const [isChannelsOpen, setIsChannelsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -54,10 +60,26 @@ export default function App() {
     chatStore.getUnreadNotificationsCount()
   );
   const [groupToEdit, setGroupToEdit] = useState<Chat | null>(null);
+  const [isAppLocked, setIsAppLocked] = useState(() => securityService.isAppLockEnabled());
+  const [pendingUnlockChat, setPendingUnlockChat] = useState<Chat | null>(null);
+
+  const hiddenAtRef = useRef<number | null>(null);
+  const lastUnlockedAtRef = useRef<number>(0);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 3500);
+  };
+
+  const openChatWithLockGuard = (target: Chat, switchToChatsTab = false) => {
+    if (switchToChatsTab) {
+      setCurrentTab('chats');
+    }
+    if (securityService.isChatLocked(target.id)) {
+      setPendingUnlockChat(target);
+      return;
+    }
+    setActiveChat(target);
   };
 
   // Boot: Firebase Auth observer, Firestore validation, WebRTC listeners, offline auto-sync, and presence
@@ -78,11 +100,24 @@ export default function App() {
           if (navigator.onLine) {
             webrtcService.listenForIncomingCalls(profile.id);
           }
+          deviceSessionService
+            .startSessionTracking(profile.id, () => {
+              showToast('Signed out remotely from another linked device.');
+              deviceSessionService.stopSessionTracking();
+              void authService.signOut();
+            })
+            .catch(() => {});
+          notificationService
+            .requestPermissions()
+            .then(() => notificationService.startBackgroundService())
+            .catch(() => {});
         } catch (err) {
           console.error('Auth profile error:', err);
         }
       } else {
         webrtcService.stopListeningForIncomingCalls();
+        deviceSessionService.stopSessionTracking();
+        void notificationService.stopBackgroundService();
         chatStore.setCurrentUser(null);
         setCurrentUser(null);
         setActiveChat(null);
@@ -109,12 +144,27 @@ export default function App() {
 
     const handleVisibilityChange = () => {
       const user = chatStore.getCurrentUser();
-      if (!user || !navigator.onLine) return;
       if (document.visibilityState === 'hidden') {
-        authService.setOfflineStatus(user.id);
+        if (Date.now() - lastUnlockedAtRef.current > 3000) {
+          hiddenAtRef.current = Date.now();
+        }
+        if (user && navigator.onLine) {
+          authService.setOfflineStatus(user.id);
+        }
       } else {
-        chatStore.updateProfile({ isOnline: true, lastSeen: 'Online' }).catch(() => {});
-        void chatStore.flushOfflineOutbox();
+        if (
+          securityService.isAppLockEnabled() &&
+          hiddenAtRef.current &&
+          Date.now() - hiddenAtRef.current > 20000 &&
+          Date.now() - lastUnlockedAtRef.current > 5000
+        ) {
+          setIsAppLocked(true);
+        }
+        hiddenAtRef.current = null;
+        if (user && navigator.onLine) {
+          chatStore.updateProfile({ isOnline: true, lastSeen: 'Online' }).catch(() => {});
+          void chatStore.flushOfflineOutbox();
+        }
       }
     };
 
@@ -137,6 +187,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       webrtcService.stopListeningForIncomingCalls();
+      deviceSessionService.stopSessionTracking();
     };
   }, []);
 
@@ -163,16 +214,36 @@ export default function App() {
     chatStore.setActiveChatId(activeChat?.id || null);
   }, [activeChat?.id]);
 
+  // Handle native notification taps & incoming call Answer/Decline actions from lockscreen/background
+  useEffect(() => {
+    return notificationService.bindActionListeners((payload) => {
+      if (payload.action === 'open_chat' && payload.chatId) {
+        const target = chatStore.getChat(payload.chatId);
+        if (target) {
+          openChatWithLockGuard(target, true);
+        }
+      } else if (payload.action === 'answer_call') {
+        void webrtcService.answerCallById(payload.callId);
+      } else if (payload.action === 'decline_call' && payload.callId) {
+        void webrtcService.rejectCall(payload.callId);
+      }
+    });
+  }, []);
+
   // Android native hardware Back button handling
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     const listenerPromise = CapApp.addListener('backButton', ({ canGoBack }) => {
-      if (isAdminOpen) {
+      if (pendingUnlockChat) {
+        setPendingUnlockChat(null);
+      } else if (isAdminOpen) {
         setIsAdminOpen(false);
       } else if (isSettingsOpen) {
         setIsSettingsOpen(false);
       } else if (isNotificationsOpen) {
         setIsNotificationsOpen(false);
+      } else if (isChannelsOpen) {
+        setIsChannelsOpen(false);
       } else if (isGroupOpen) {
         setIsGroupOpen(false);
       } else if (isAuthOpen && currentUser && currentUser.isProfileComplete !== false) {
@@ -191,9 +262,11 @@ export default function App() {
       listenerPromise.then((h) => h.remove()).catch(() => {});
     };
   }, [
+    pendingUnlockChat,
     isAdminOpen,
     isSettingsOpen,
     isNotificationsOpen,
+    isChannelsOpen,
     isGroupOpen,
     isAuthOpen,
     currentUser,
@@ -247,11 +320,11 @@ export default function App() {
       return;
     }
     const chat = await chatStore.createOrGetPrivateChat(partner.id);
-    setActiveChat(chat);
-    setCurrentTab('chats');
+    openChatWithLockGuard(chat, true);
   };
 
   const handleSignOut = async () => {
+    deviceSessionService.stopSessionTracking();
     await authService.signOut();
     chatStore.setCurrentUser(null);
     setCurrentUser(null);
@@ -328,7 +401,7 @@ export default function App() {
               <ChatList
                 chats={chats}
                 activeChatId={activeChat?.id || null}
-                onSelectChat={(chat) => setActiveChat(chat)}
+                onSelectChat={(chat) => openChatWithLockGuard(chat)}
                 onSelectUserToChat={handleSelectUserToChat}
                 currentUser={currentUser}
                 onNewChat={() => setCurrentTab('contacts')}
@@ -339,6 +412,13 @@ export default function App() {
                   }
                   setGroupToEdit(null);
                   setIsGroupOpen(true);
+                }}
+                onOpenChannelsBroadcast={() => {
+                  if (!currentUser) {
+                    setIsAuthOpen(true);
+                    return;
+                  }
+                  setIsChannelsOpen(true);
                 }}
               />
             </div>
@@ -372,8 +452,7 @@ export default function App() {
                 return;
               }
               chatStore.createOrGetPrivateChat(targetUserId).then((chat) => {
-                setActiveChat(chat);
-                setCurrentTab('chats');
+                openChatWithLockGuard(chat, true);
               });
             }}
           />
@@ -450,6 +529,18 @@ export default function App() {
         />
       )}
 
+      {/* 6B. Channels & Broadcast Lists Modal */}
+      {currentUser && (
+        <ChannelsBroadcastModal
+          isOpen={isChannelsOpen}
+          onClose={() => setIsChannelsOpen(false)}
+          currentUser={currentUser}
+          onOpenChat={(c) => {
+            openChatWithLockGuard(c, true);
+          }}
+        />
+      )}
+
       {/* 7. Settings & Privacy Modal */}
       <SettingsModal
         isOpen={isSettingsOpen}
@@ -473,10 +564,37 @@ export default function App() {
         onOpenChat={(chatId) => {
           const target = chatStore.getChat(chatId);
           if (target) {
-            setActiveChat(target);
-            setCurrentTab('chats');
+            openChatWithLockGuard(target, true);
           }
         }}
+      />
+
+      {/* 10. Biometric / PIN App Lock & Chat Lock Screen */}
+      <LockScreenModal
+        isOpen={!showSplash && isAppLocked}
+        mode="app"
+        userLabel={currentUser?.email}
+        onUnlocked={() => {
+          lastUnlockedAtRef.current = Date.now();
+          setIsAppLocked(false);
+        }}
+      />
+
+      <LockScreenModal
+        isOpen={!showSplash && !isAppLocked && Boolean(pendingUnlockChat)}
+        mode="chat"
+        title={pendingUnlockChat?.name || 'Locked Chat'}
+        subtitle="Verify Fingerprint, Face ID, or PIN to open this locked chat"
+        userLabel={currentUser?.email}
+        onUnlocked={() => {
+          lastUnlockedAtRef.current = Date.now();
+          if (pendingUnlockChat) {
+            setActiveChat(pendingUnlockChat);
+            setCurrentTab('chats');
+          }
+          setPendingUnlockChat(null);
+        }}
+        onCancel={() => setPendingUnlockChat(null)}
       />
     </div>
   );

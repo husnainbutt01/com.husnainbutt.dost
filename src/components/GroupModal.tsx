@@ -42,6 +42,12 @@ export const GroupModal: React.FC<GroupModalProps> = ({
   const [adminIds, setAdminIds] = useState<string[]>(
     existingChat?.adminIds || [currentUser.id]
   );
+  const [onlyAdminsCanMessage, setOnlyAdminsCanMessage] = useState(
+    Boolean(existingChat?.onlyAdminsCanMessage)
+  );
+  const [onlyAdminsCanEdit, setOnlyAdminsCanEdit] = useState(
+    Boolean(existingChat?.onlyAdminsCanEdit)
+  );
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -57,6 +63,8 @@ export const GroupModal: React.FC<GroupModalProps> = ({
       setConfirmLeave(false);
       setSelectedMemberIds(existingChat ? existingChat.participants : [currentUser.id]);
       setAdminIds(existingChat?.adminIds || [currentUser.id]);
+      setOnlyAdminsCanMessage(Boolean(existingChat?.onlyAdminsCanMessage));
+      setOnlyAdminsCanEdit(Boolean(existingChat?.onlyAdminsCanEdit));
     }
   }, [isOpen, existingChat, currentUser.id]);
 
@@ -121,12 +129,20 @@ export const GroupModal: React.FC<GroupModalProps> = ({
 
       const finalParticipants = Array.from(new Set([currentUser.id, ...selectedMemberIds]));
       if (isEditing && existingChat) {
-        if (amIGroupAdmin) {
+        if (amIGroupAdmin || !existingChat.onlyAdminsCanEdit) {
           await chatStore.updateGroup(existingChat.id, {
             name: name.trim(),
             description: description.trim(),
-            participants: finalParticipants,
-            adminIds: Array.from(new Set([currentUser.id, ...adminIds])),
+            participants: amIGroupAdmin ? finalParticipants : existingChat.participants,
+            adminIds: amIGroupAdmin
+              ? Array.from(new Set([currentUser.id, ...adminIds]))
+              : existingChat.adminIds,
+            onlyAdminsCanMessage: amIGroupAdmin
+              ? onlyAdminsCanMessage
+              : existingChat.onlyAdminsCanMessage,
+            onlyAdminsCanEdit: amIGroupAdmin
+              ? onlyAdminsCanEdit
+              : existingChat.onlyAdminsCanEdit,
             ...(uploadedPhotoUrl ? { photoUrl: uploadedPhotoUrl } : {}),
           });
         }
@@ -232,11 +248,44 @@ export const GroupModal: React.FC<GroupModalProps> = ({
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              disabled={!amIGroupAdmin}
+              disabled={!amIGroupAdmin && Boolean(existingChat?.onlyAdminsCanEdit)}
               placeholder="What is this group about?"
               className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-500 h-16 disabled:bg-slate-50"
             />
           </div>
+
+          {amIGroupAdmin && (
+            <div className="p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200/70 space-y-2.5">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>Admin Member Controls</span>
+              </p>
+              <label className="flex items-center justify-between text-xs cursor-pointer">
+                <div>
+                  <p className="font-semibold text-slate-800">Only Admins Can Send Messages</p>
+                  <p className="text-[10px] text-slate-500">Turn on for announcement-only groups</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={onlyAdminsCanMessage}
+                  onChange={(e) => setOnlyAdminsCanMessage(e.target.checked)}
+                  className="w-4 h-4 accent-emerald-600 cursor-pointer"
+                />
+              </label>
+              <label className="flex items-center justify-between text-xs cursor-pointer pt-1 border-t border-emerald-200/50">
+                <div>
+                  <p className="font-semibold text-slate-800">Only Admins Can Edit Group Info</p>
+                  <p className="text-[10px] text-slate-500">Protect name, icon, and description</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={onlyAdminsCanEdit}
+                  onChange={(e) => setOnlyAdminsCanEdit(e.target.checked)}
+                  className="w-4 h-4 accent-emerald-600 cursor-pointer"
+                />
+              </label>
+            </div>
+          )}
 
           <div>
             <div className="flex items-center justify-between mb-2">

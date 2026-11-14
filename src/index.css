@@ -31,3 +31,51 @@
   0% { width: 0%; }
   100% { width: 100%; }
 }
+
+@keyframes splashScaleIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.88) translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes splashRiseIn {
+  0% {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes splashBarFill {
+  0% {
+    transform: scaleX(0);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+.animate-splash-scale {
+  animation: splashScaleIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-splash-rise {
+  animation: splashRiseIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
+}
+
+.animate-splash-rise-late {
+  animation: splashRiseIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.26s both;
+}
+
+.animate-splash-bar {
+  transform-origin: left center;
+  animation: splashBarFill 1.65s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both;
+}
