@@ -35,7 +35,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onDismiss }) => {
     <div
       onClick={handleQuickEnter}
       role="presentation"
-      className={`fixed inset-0 z-50 flex flex-col justify-between overflow-hidden select-none cursor-pointer bg-[#F6FAF7] dark:bg-[#07150E] text-slate-900 dark:text-slate-100 transition-all duration-300 ease-out ${
+      className={`fixed inset-0 z-50 flex flex-col justify-between overflow-hidden select-none cursor-pointer bg-[#F6FAF7] dark:bg-[#181A1D] text-slate-900 dark:text-zinc-100 transition-all duration-300 ease-out ${
         isLeaving ? 'opacity-0 scale-[1.02]' : 'opacity-100 scale-100'
       }`}
     >

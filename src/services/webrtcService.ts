@@ -12,6 +12,7 @@ import {
 import { db } from './firebase';
 import { sounds } from '../utils/soundEffects';
 import { notificationService } from './notificationService';
+import { mediaSettingsService } from './mediaSettingsService';
 import { CallSession } from '../types';
 
 const RTC_CONFIG: RTCConfiguration = {
@@ -128,6 +129,43 @@ export class WebRTCService {
     return this.remoteStream;
   }
 
+  private getMediaConstraints(type: 'audio' | 'video'): MediaStreamConstraints {
+    const { noiseCancellation, lowDataMode } = mediaSettingsService.getSettings();
+    const audioConstraint: MediaTrackConstraints = {
+      echoCancellation: noiseCancellation,
+      noiseSuppression: noiseCancellation,
+      autoGainControl: noiseCancellation,
+    };
+    const videoConstraint: boolean | MediaTrackConstraints =
+      type !== 'video'
+        ? false
+        : lowDataMode
+        ? { width: { ideal: 480 }, height: { ideal: 360 }, frameRate: { max: 15 } }
+        : { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+
+    return {
+      audio: audioConstraint,
+      video: videoConstraint,
+    };
+  }
+
+  private async applyLowDataBitrateCaps() {
+    if (!this.peerConnection) return;
+    const { lowDataMode } = mediaSettingsService.getSettings();
+    if (!lowDataMode) return;
+    for (const sender of this.peerConnection.getSenders()) {
+      if (!sender.track) continue;
+      try {
+        const params = sender.getParameters();
+        if (!params.encodings || params.encodings.length === 0) {
+          params.encodings = [{}];
+        }
+        params.encodings[0].maxBitrate = sender.track.kind === 'video' ? 180000 : 24000;
+        await sender.setParameters(params);
+      } catch {}
+    }
+  }
+
   private setupPeerConnection(callId: string, role: 'caller' | 'callee') {
     this.peerConnection = new RTCPeerConnection(RTC_CONFIG);
     this.remoteStream = new MediaStream();
@@ -136,6 +174,7 @@ export class WebRTCService {
       this.localStream.getTracks().forEach((track) => {
         this.peerConnection?.addTrack(track, this.localStream!);
       });
+      void this.applyLowDataBitrateCaps();
     }
 
     this.peerConnection.ontrack = (event) => {
@@ -167,13 +206,14 @@ export class WebRTCService {
     const callId = `call_${Date.now()}`;
     const now = new Date().toISOString();
 
-    // Acquire local audio / video
+    const { noiseCancellation, lowDataMode } = mediaSettingsService.getSettings();
+
+    // Acquire local audio / video with Noise Cancellation & Low Data Mode constraints
     try {
       if (navigator.mediaDevices?.getUserMedia) {
-        this.localStream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: params.type === 'video',
-        }).catch(() => null);
+        this.localStream = await navigator.mediaDevices
+          .getUserMedia(this.getMediaConstraints(params.type))
+          .catch(() => null);
       }
     } catch {}
 
@@ -200,6 +240,8 @@ export class WebRTCService {
       isMuted: false,
       isVideoEnabled: params.type === 'video',
       isSpeakerOn: true,
+      isNoiseCancelled: noiseCancellation,
+      isLowData: lowDataMode,
       duration: 0,
       createdAt: now,
     };
@@ -259,12 +301,13 @@ export class WebRTCService {
     void notificationService.cancelCallNotification();
     this.onIncomingCallCallback?.(null);
 
+    const { noiseCancellation, lowDataMode } = mediaSettingsService.getSettings();
+
     try {
       if (navigator.mediaDevices?.getUserMedia) {
-        this.localStream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: incomingSession.type === 'video',
-        }).catch(() => null);
+        this.localStream = await navigator.mediaDevices
+          .getUserMedia(this.getMediaConstraints(incomingSession.type))
+          .catch(() => null);
       }
     } catch {}
 
@@ -274,6 +317,8 @@ export class WebRTCService {
       isMuted: false,
       isVideoEnabled: incomingSession.type === 'video',
       isSpeakerOn: true,
+      isNoiseCancelled: noiseCancellation,
+      isLowData: lowDataMode,
       startTime: Date.now(),
       duration: 0,
     };

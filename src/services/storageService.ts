@@ -10,6 +10,8 @@ let storageBucketUnavailable = false;
 
 export interface UploadOptions {
   isImage?: boolean;
+  hd?: boolean;
+  lowDataMode?: boolean;
   onProgress?: (percent: number) => void;
   signal?: AbortSignal;
 }
@@ -167,19 +169,21 @@ export async function uploadMediaFile(
   options?: UploadOptions
 ): Promise<string> {
   const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
-  const { isImage, onProgress, signal } = options || {};
+  const { isImage, hd, lowDataMode, onProgress, signal } = options || {};
 
   if (signal?.aborted) {
     throw new Error('Upload cancelled.');
   }
 
-  // 1. Compress images upfront so both Storage upload AND fallback are near-instant (~80KB instead of 8MB)
+  // 1. Compress images upfront based on HD vs Standard vs Low Data Mode
   let uploadPayload: Blob | File = file;
   let precompressedDataUrl: string | null = null;
 
   if (isImage && file instanceof File) {
     try {
-      const compressed = await compressImageToBlobAndDataUrl(file, 900, 0.72);
+      const targetMaxDim = hd ? 2560 : lowDataMode ? 640 : 1080;
+      const targetQuality = hd ? 0.92 : lowDataMode ? 0.56 : 0.78;
+      const compressed = await compressImageToBlobAndDataUrl(file, targetMaxDim, targetQuality);
       uploadPayload = compressed.blob;
       precompressedDataUrl = compressed.dataUrl;
       if (onProgress) onProgress(35);
@@ -214,7 +218,12 @@ export async function uploadMediaFile(
       return precompressedDataUrl;
     }
     if (file instanceof File) {
-      const tighter = await compressImageToBlobAndDataUrl(file, 640, 0.6);
+      const step1 = await compressImageToBlobAndDataUrl(file, hd ? 1440 : 720, hd ? 0.78 : 0.62);
+      if (step1.dataUrl.length <= 720000) {
+        if (onProgress) onProgress(100);
+        return step1.dataUrl;
+      }
+      const tighter = await compressImageToBlobAndDataUrl(file, 640, 0.58);
       if (onProgress) onProgress(100);
       return tighter.dataUrl;
     }

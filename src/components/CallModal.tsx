@@ -11,6 +11,8 @@ import {
   Volume2,
   VolumeX,
   ShieldCheck,
+  AudioWaveform,
+  Wifi,
 } from 'lucide-react';
 
 interface CallModalProps {
@@ -61,14 +63,32 @@ export const CallModal: React.FC<CallModalProps> = ({ session, currentUserId, on
 
       <div className="relative w-full max-w-lg bg-slate-900 text-white rounded-3xl shadow-2xl overflow-hidden border border-slate-800 flex flex-col items-center justify-between min-h-[560px] p-6">
         {/* Top Info Header */}
-        <div className="w-full flex justify-between items-center z-20">
-          <div className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-950/80 px-3 py-1.5 rounded-full border border-emerald-500/30">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>WebRTC End-to-End Encrypted</span>
+        <div className="w-full flex flex-col gap-2 z-20">
+          <div className="w-full flex justify-between items-center">
+            <div className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-950/80 px-3 py-1.5 rounded-full border border-emerald-500/30">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <span>WebRTC End-to-End Encrypted</span>
+            </div>
+            <span className="text-xs font-mono tracking-wider text-slate-300 bg-slate-800/80 px-2.5 py-1 rounded-lg">
+              {isConnected ? formatDuration(session.duration) : session.status.toUpperCase()}
+            </span>
           </div>
-          <span className="text-xs font-mono tracking-wider text-slate-300 bg-slate-800/80 px-2.5 py-1 rounded-lg">
-            {isConnected ? formatDuration(session.duration) : session.status.toUpperCase()}
-          </span>
+          {(session.isNoiseCancelled || session.isLowData) && (
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+              {session.isNoiseCancelled && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  <AudioWaveform className="w-3 h-3" />
+                  <span>Noise Cancellation ON</span>
+                </span>
+              )}
+              {session.isLowData && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  <Wifi className="w-3 h-3" />
+                  <span>Low Data Mode</span>
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Center Display: Audio Calling vs Video Calling */}

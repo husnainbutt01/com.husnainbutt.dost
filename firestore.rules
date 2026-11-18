@@ -53,7 +53,8 @@ service cloud.firestore {
              data.participants is list && data.participants.size() >= 1 && data.participants.size() <= 1000 &&
              (!('lastMessage' in data) || data.lastMessage == null || (data.lastMessage is string && data.lastMessage.size() <= 1000)) &&
              (!('name' in data) || data.name == null || (data.name is string && data.name.size() <= 100)) &&
-             (!('description' in data) || data.description == null || (data.description is string && data.description.size() <= 500));
+             (!('description' in data) || data.description == null || (data.description is string && data.description.size() <= 500)) &&
+             (!('disappearingDuration' in data) || data.disappearingDuration == null || (data.disappearingDuration is number && data.disappearingDuration >= 0));
     }
 
     function isValidMessage(data) {
@@ -61,10 +62,15 @@ service cloud.firestore {
              data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
              data.chatId is string && data.chatId.size() > 0 && data.chatId.size() <= 128 &&
              data.participants is list && data.participants.size() >= 1 && data.participants.size() <= 1000 &&
-             (data.type in ['text', 'image', 'video', 'audio', 'document', 'call_log', 'poll', 'payment']) &&
+             (data.type in ['text', 'image', 'video', 'audio', 'document', 'call_log', 'poll', 'payment', 'location']) &&
              (!('text' in data) || data.text == null || (data.text is string && data.text.size() <= 5000)) &&
              (!('mediaUrl' in data) || data.mediaUrl == null || (data.mediaUrl is string && data.mediaUrl.size() <= 750000)) &&
-             (!('fileName' in data) || data.fileName == null || (data.fileName is string && data.fileName.size() <= 255));
+             (!('fileName' in data) || data.fileName == null || (data.fileName is string && data.fileName.size() <= 255)) &&
+             (!('expiresAt' in data) || data.expiresAt == null || (data.expiresAt is string && data.expiresAt.size() <= 64)) &&
+             (!('isViewOnce' in data) || data.isViewOnce == null || data.isViewOnce is bool) &&
+             (!('isHD' in data) || data.isHD == null || data.isHD is bool) &&
+             (!('viewedOnceBy' in data) || data.viewedOnceBy == null || (data.viewedOnceBy is list && data.viewedOnceBy.size() <= 1000)) &&
+             (!('location' in data) || data.location == null || data.location is map);
     }
 
     function isValidGroup(data) {
@@ -202,6 +208,10 @@ service cloud.firestore {
           (existing().senderId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'text', 'mediaUrl', 'updatedAt'])) ||
           // Case 5: In-chat payment status update by sender or recipient
           (existing().type == 'payment' && incoming().diff(existing()).affectedKeys().hasOnly(['payment', 'updatedAt'])) ||
+          // Case 6: View Once media opened by recipient
+          (existing().isViewOnce == true && incoming().diff(existing()).affectedKeys().hasOnly(['viewedOnceBy', 'mediaUrl', 'updatedAt'])) ||
+          // Case 7: Sender updates or stops live GPS location
+          (existing().type == 'location' && existing().senderId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['location', 'updatedAt'])) ||
           isAdmin()
         )
       );

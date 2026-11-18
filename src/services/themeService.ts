@@ -1,4 +1,5 @@
 export type ChatThemeId =
+  | 'charcoal-dark'
   | 'emerald-glass'
   | 'midnight-emerald'
   | 'ocean-slate'
@@ -45,6 +46,47 @@ export interface ChatThemeConfig {
 }
 
 export const CHAT_THEMES: Record<ChatThemeId, ChatThemeConfig> = {
+  'charcoal-dark': {
+    id: 'charcoal-dark',
+    name: 'Charcoal Comfort',
+    subtitle: 'Eye-friendly dark grey & crisp emerald bubbles',
+    isDark: true,
+    swatchPrimary: '#0FA958',
+    swatchCanvas: '#181A1D',
+    canvasBg: 'bg-[#181A1D]',
+    patternColor: '#9CA3AF',
+    patternOpacity: 'opacity-[0.045]',
+    headerBg: 'bg-[#202327]/95 backdrop-blur-md border-b border-white/10 text-zinc-100',
+    headerTitle: 'text-zinc-100',
+    headerSubtitle: 'text-zinc-400',
+    headerIcon: 'text-zinc-300',
+    headerHover: 'hover:bg-white/[0.07] hover:text-white',
+    outgoingBubble:
+      'bg-gradient-to-br from-[#0FA958] to-[#0B7D41] text-white rounded-2xl rounded-br-sm shadow-[0_6px_18px_-6px_rgba(15,169,88,0.35)]',
+    outgoingMeta: 'text-emerald-50/90',
+    outgoingReplyBox: 'bg-black/25 text-white',
+    outgoingReplyBar: 'bg-emerald-200',
+    outgoingDocBox: 'bg-black/20 border-white/20 text-white',
+    outgoingAudioBtn: 'bg-white text-emerald-800 shadow-xs',
+    outgoingAudioWave: 'bg-emerald-100/80',
+    incomingBubble:
+      'bg-[#282C32] text-zinc-100 border border-white/[0.08] rounded-2xl rounded-bl-sm shadow-[0_4px_14px_-6px_rgba(0,0,0,0.4)]',
+    incomingMeta: 'text-zinc-400',
+    incomingReplyBox: 'bg-black/25 text-zinc-200',
+    incomingReplyBar: 'bg-emerald-400',
+    incomingDocBox: 'bg-[#202328] border-white/10 text-zinc-100',
+    incomingAudioBtn: 'bg-emerald-500 text-slate-950 shadow-xs',
+    incomingAudioWave: 'bg-zinc-500',
+    dividerBadge: 'bg-[#23272D]/95 backdrop-blur-xs text-zinc-300 border border-white/10 shadow-sm',
+    composerBg: 'bg-[#202327]/95 backdrop-blur-md border-t border-white/10',
+    composerInput:
+      'bg-[#2A2E35] focus:bg-[#30353D] text-zinc-100 placeholder-zinc-400 border border-white/10 focus:border-emerald-500',
+    sendButton: 'bg-gradient-to-br from-[#10B981] to-[#059669] hover:brightness-105 text-slate-950 font-bold shadow-md shadow-black/30',
+    micButton: 'bg-white/[0.08] text-emerald-300 hover:bg-white/[0.14]',
+    scrollDownBtn: 'bg-[#282C32] text-emerald-300 border border-white/15 shadow-lg hover:bg-[#31363E]',
+    searchBarBg: 'bg-[#23272D] border-b border-white/10 text-zinc-100',
+    replyBannerBg: 'bg-[#23272D] border-t border-white/10 text-zinc-100',
+  },
   'emerald-glass': {
     id: 'emerald-glass',
     name: 'DOST Emerald',
@@ -55,7 +97,7 @@ export const CHAT_THEMES: Record<ChatThemeId, ChatThemeConfig> = {
     canvasBg: 'bg-[#EEF5F1]',
     patternColor: '#0B8043',
     patternOpacity: 'opacity-[0.045]',
-    headerBg: 'bg-white/92 backdrop-blur-md border-b border-emerald-950/10 text-slate-800',
+    headerBg: 'bg-white/95 backdrop-blur-md border-b border-emerald-950/10 text-slate-800',
     headerTitle: 'text-slate-900',
     headerSubtitle: 'text-slate-500',
     headerIcon: 'text-slate-600',
@@ -89,16 +131,16 @@ export const CHAT_THEMES: Record<ChatThemeId, ChatThemeConfig> = {
   'midnight-emerald': {
     id: 'midnight-emerald',
     name: 'Midnight Forest',
-    subtitle: 'Sleek dark AMOLED emerald canvas',
+    subtitle: 'Deep forest slate & emerald contrast',
     isDark: true,
     swatchPrimary: '#10B981',
-    swatchCanvas: '#08120E',
-    canvasBg: 'bg-[#08120E]',
+    swatchCanvas: '#111916',
+    canvasBg: 'bg-[#111916]',
     patternColor: '#34D399',
-    patternOpacity: 'opacity-[0.06]',
-    headerBg: 'bg-[#0D1C15]/92 backdrop-blur-md border-b border-emerald-400/12 text-slate-100',
+    patternOpacity: 'opacity-[0.055]',
+    headerBg: 'bg-[#16211D]/95 backdrop-blur-md border-b border-emerald-400/12 text-slate-100',
     headerTitle: 'text-white',
-    headerSubtitle: 'text-emerald-200/65',
+    headerSubtitle: 'text-emerald-200/70',
     headerIcon: 'text-emerald-200/80',
     headerHover: 'hover:bg-emerald-500/15 hover:text-emerald-300',
     outgoingBubble:
@@ -110,22 +152,22 @@ export const CHAT_THEMES: Record<ChatThemeId, ChatThemeConfig> = {
     outgoingAudioBtn: 'bg-white text-emerald-800',
     outgoingAudioWave: 'bg-emerald-100/75',
     incomingBubble:
-      'bg-[#13261D] text-slate-100 border border-emerald-400/12 rounded-2xl rounded-bl-sm shadow-[0_6px_16px_-6px_rgba(0,0,0,0.5)]',
-    incomingMeta: 'text-emerald-200/50',
-    incomingReplyBox: 'bg-black/25 text-slate-200',
+      'bg-[#1D2B26] text-zinc-100 border border-emerald-400/14 rounded-2xl rounded-bl-sm shadow-[0_6px_16px_-6px_rgba(0,0,0,0.45)]',
+    incomingMeta: 'text-emerald-200/60',
+    incomingReplyBox: 'bg-black/25 text-zinc-200',
     incomingReplyBar: 'bg-emerald-400',
-    incomingDocBox: 'bg-[#0C1913] border-emerald-400/15 text-slate-100',
+    incomingDocBox: 'bg-[#15221D] border-emerald-400/15 text-zinc-100',
     incomingAudioBtn: 'bg-emerald-500 text-slate-950',
     incomingAudioWave: 'bg-emerald-400/35',
-    dividerBadge: 'bg-[#12241C]/90 backdrop-blur-xs text-emerald-200/75 border border-emerald-400/15 shadow-sm',
-    composerBg: 'bg-[#0D1C15]/95 backdrop-blur-md border-t border-emerald-400/12',
+    dividerBadge: 'bg-[#1A2622]/90 backdrop-blur-xs text-emerald-200/80 border border-emerald-400/15 shadow-sm',
+    composerBg: 'bg-[#16211D]/95 backdrop-blur-md border-t border-emerald-400/12',
     composerInput:
-      'bg-[#152B21] focus:bg-[#193327] text-slate-100 placeholder-emerald-200/40 border border-emerald-400/10 focus:border-emerald-500',
+      'bg-[#1D2D27] focus:bg-[#22352E] text-zinc-100 placeholder-emerald-200/45 border border-emerald-400/12 focus:border-emerald-500',
     sendButton: 'bg-gradient-to-br from-[#10B981] to-[#059669] text-slate-950 font-bold shadow-md shadow-emerald-950/50',
     micButton: 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30',
-    scrollDownBtn: 'bg-[#13261D] text-emerald-300 border border-emerald-400/20 shadow-lg hover:bg-[#193327]',
-    searchBarBg: 'bg-[#0E2018] border-b border-emerald-400/15 text-slate-100',
-    replyBannerBg: 'bg-[#11241B] border-t border-emerald-400/15 text-slate-100',
+    scrollDownBtn: 'bg-[#1D2B26] text-emerald-300 border border-emerald-400/20 shadow-lg hover:bg-[#23352F]',
+    searchBarBg: 'bg-[#16231E] border-b border-emerald-400/15 text-zinc-100',
+    replyBannerBg: 'bg-[#192621] border-t border-emerald-400/15 text-zinc-100',
   },
   'ocean-slate': {
     id: 'ocean-slate',
@@ -137,7 +179,7 @@ export const CHAT_THEMES: Record<ChatThemeId, ChatThemeConfig> = {
     canvasBg: 'bg-[#ECF3F8]',
     patternColor: '#0284C7',
     patternOpacity: 'opacity-[0.045]',
-    headerBg: 'bg-white/92 backdrop-blur-md border-b border-sky-950/10 text-slate-800',
+    headerBg: 'bg-white/95 backdrop-blur-md border-b border-sky-950/10 text-slate-800',
     headerTitle: 'text-slate-900',
     headerSubtitle: 'text-slate-500',
     headerIcon: 'text-slate-600',
@@ -178,7 +220,7 @@ export const CHAT_THEMES: Record<ChatThemeId, ChatThemeConfig> = {
     canvasBg: 'bg-[#F3F0F8]',
     patternColor: '#6D28D9',
     patternOpacity: 'opacity-[0.04]',
-    headerBg: 'bg-white/92 backdrop-blur-md border-b border-purple-950/10 text-slate-800',
+    headerBg: 'bg-white/95 backdrop-blur-md border-b border-purple-950/10 text-slate-800',
     headerTitle: 'text-slate-900',
     headerSubtitle: 'text-slate-500',
     headerIcon: 'text-slate-600',
@@ -219,7 +261,7 @@ export const CHAT_THEMES: Record<ChatThemeId, ChatThemeConfig> = {
     canvasBg: 'bg-[#EFE9DF]',
     patternColor: '#15803D',
     patternOpacity: 'opacity-[0.04]',
-    headerBg: 'bg-[#FFFDF9]/94 backdrop-blur-md border-b border-stone-200/80 text-slate-800',
+    headerBg: 'bg-[#FFFDF9]/95 backdrop-blur-md border-b border-stone-200/80 text-slate-800',
     headerTitle: 'text-slate-900',
     headerSubtitle: 'text-stone-500',
     headerIcon: 'text-stone-600',
@@ -255,7 +297,7 @@ export const CHAT_THEMES: Record<ChatThemeId, ChatThemeConfig> = {
 const THEME_STORAGE_KEY = 'dost_chat_theme_id';
 
 class ThemeService {
-  private currentThemeId: ChatThemeId = 'emerald-glass';
+  private currentThemeId: ChatThemeId = 'charcoal-dark';
   private listeners = new Set<() => void>();
 
   constructor() {
@@ -264,7 +306,14 @@ class ThemeService {
       if (saved && CHAT_THEMES[saved]) {
         this.currentThemeId = saved;
       }
+      this.syncDocumentDarkClass();
     }
+  }
+
+  private syncDocumentDarkClass() {
+    if (typeof document === 'undefined') return;
+    const isDark = CHAT_THEMES[this.currentThemeId].isDark;
+    document.documentElement.classList.toggle('dark', isDark);
   }
 
   getThemeId(): ChatThemeId {
@@ -275,13 +324,23 @@ class ThemeService {
     return CHAT_THEMES[this.currentThemeId];
   }
 
+  isDarkMode(): boolean {
+    return CHAT_THEMES[this.currentThemeId].isDark;
+  }
+
   setTheme(id: ChatThemeId) {
     if (!CHAT_THEMES[id] || this.currentThemeId === id) return;
     this.currentThemeId = id;
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(THEME_STORAGE_KEY, id);
+      this.syncDocumentDarkClass();
     }
     this.listeners.forEach((cb) => cb());
+  }
+
+  toggleDarkLight() {
+    const next: ChatThemeId = this.isDarkMode() ? 'emerald-glass' : 'charcoal-dark';
+    this.setTheme(next);
   }
 
   subscribe(listener: () => void): () => void {

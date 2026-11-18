@@ -7,6 +7,8 @@ import { testConnection } from './services/firebase';
 import { notificationService } from './services/notificationService';
 import { securityService } from './services/securityService';
 import { deviceSessionService } from './services/deviceSessionService';
+import { themeService } from './services/themeService';
+import { mediaSettingsService } from './services/mediaSettingsService';
 
 import { SplashScreen } from './components/SplashScreen';
 import { NavigationSidebar, NavigationTab } from './components/NavigationSidebar';
@@ -26,7 +28,7 @@ import { ChannelsBroadcastModal } from './components/ChannelsBroadcastModal';
 import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { PWAInstallButton } from './components/PWAInstallButton';
-import { CheckCircle2, WifiOff, RefreshCw } from 'lucide-react';
+import { CheckCircle2, WifiOff, RefreshCw, AlertTriangle } from 'lucide-react';
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
@@ -46,8 +48,9 @@ export default function App() {
   const [callSession, setCallSession] = useState<CallSession | null>(null);
   const [incomingCall, setIncomingCall] = useState<CallSession | null>(null);
 
-  // Toast notice
+  // Toast notice & Maps quota alert
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [mapsQuotaExceeded, setMapsQuotaExceeded] = useState(false);
 
   // Modals & Security state
   const [isAuthOpen, setIsAuthOpen] = useState(false);
@@ -96,6 +99,9 @@ export default function App() {
         try {
           const profile = await authService.getOrCreateUserProfile(fbUser);
           chatStore.setCurrentUser(profile);
+          if (profile.mediaSettings) {
+            mediaSettingsService.hydrateFromProfile(profile.mediaSettings);
+          }
           setCurrentUser(profile);
           if (navigator.onLine) {
             webrtcService.listenForIncomingCalls(profile.id);
@@ -336,8 +342,30 @@ export default function App() {
   const needsProfileSetup = Boolean(currentUser && currentUser.isProfileComplete === false);
   const shouldForceAuthModal = !showSplash && !isAuthChecking && (!currentUser || needsProfileSetup);
 
+  // Ensure theme class sync & listen for Google Maps quota exceeded event on initial mount
+  useEffect(() => {
+    void themeService.getTheme();
+    const onMapsQuota = () => setMapsQuotaExceeded(true);
+    window.addEventListener('gmp-quota-exceeded', onMapsQuota);
+    return () => window.removeEventListener('gmp-quota-exceeded', onMapsQuota);
+  }, []);
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-900 font-['Plus_Jakarta_Sans',sans-serif]">
+    <div className="flex h-screen w-screen overflow-hidden bg-[#F4F6F8] dark:bg-[#181A1D] text-slate-900 dark:text-zinc-100 font-['Plus_Jakarta_Sans',sans-serif] transition-colors">
+      {mapsQuotaExceeded && (
+        <div className="fixed top-0 inset-x-0 z-[60] bg-amber-500 text-slate-950 px-4 py-2 text-xs font-semibold flex items-center justify-center gap-2 shadow-md">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>Maps demo quota exceeded or key billing required.</span>
+          <a
+            href="https://developers.google.com/maps/ai/ai-studio?utm_campaign=gmp_mcp_codeassist_v1_aistudio#quota_exceeded_errors"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline font-bold"
+          >
+            Upgrade your Maps API key
+          </a>
+        </div>
+      )}
       {/* 1. Auto-transitioning WhatsApp-style Splash Screen */}
       {showSplash && <SplashScreen onDismiss={() => setShowSplash(false)} />}
 

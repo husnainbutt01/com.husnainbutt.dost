@@ -1,8 +1,23 @@
-export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'call_log' | 'poll' | 'payment';
+export type MessageType =
+  | 'text'
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'document'
+  | 'call_log'
+  | 'poll'
+  | 'payment'
+  | 'location';
 export type MessageStatus = 'pending' | 'sent' | 'delivered' | 'read';
 export type UserRole = 'user' | 'admin';
 export type ChatType = 'private' | 'group' | 'channel' | 'broadcast';
 export type PaymentMethod = 'jazzcash' | 'easypaisa' | 'sadapay' | 'nayapay' | 'raast';
+
+export interface UserMediaSettings {
+  noiseCancellation: boolean;
+  lowDataMode: boolean;
+  defaultHdMedia: boolean;
+}
 
 export interface UserPaymentAccount {
   method: PaymentMethod;
@@ -39,6 +54,7 @@ export interface User {
   isProfileComplete?: boolean;
   privacySettings?: UserPrivacySettings;
   notificationSettings?: UserNotificationSettings;
+  mediaSettings?: UserMediaSettings;
   paymentAccount?: UserPaymentAccount;
   createdAt: string;
   updatedAt?: string;
@@ -62,6 +78,7 @@ export interface Chat {
   pinnedBy?: string[];
   mutedBy?: string[];
   archivedBy?: string[];
+  disappearingDuration?: number | null; // Seconds until sent messages auto-expire (null/0 = Off)
   typingUsers?: Record<string, boolean>;
   unreadCounts?: Record<string, number>;
   createdAt: string;
@@ -120,6 +137,17 @@ export interface PaymentTransaction {
   updatedAt?: string;
 }
 
+export interface LocationData {
+  lat: number;
+  lng: number;
+  accuracy?: number;
+  address?: string;
+  isLive: boolean;
+  liveExpiresAt?: string;
+  isStopped?: boolean;
+  updatedAt?: string;
+}
+
 export interface Message {
   id: string;
   chatId: string;
@@ -132,10 +160,15 @@ export interface Message {
   type: MessageType;
   poll?: PollData;
   payment?: PaymentData;
+  location?: LocationData;
   mediaUrl?: string;
   fileName?: string;
   fileSize?: string;
   duration?: number; // In seconds (for audio voice notes or call duration)
+  isViewOnce?: boolean;
+  viewedOnceBy?: string[];
+  isHD?: boolean;
+  expiresAt?: string;
   status: MessageStatus;
   readBy?: string[];
   deliveredTo?: string[];
@@ -223,6 +256,8 @@ export interface CallSession {
   isMuted?: boolean;
   isVideoEnabled?: boolean;
   isSpeakerOn?: boolean;
+  isNoiseCancelled?: boolean;
+  isLowData?: boolean;
   createdAt?: string;
   endedAt?: string;
 }

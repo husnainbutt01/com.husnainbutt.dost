@@ -94,10 +94,10 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex flex-col items-center justify-between bg-[#062415] text-white px-6 py-8 select-none">
+    <div className="fixed inset-0 z-[70] flex flex-col items-center justify-between bg-[#181A1D] text-zinc-100 px-6 py-8 select-none">
       {/* Top Bar */}
       <div className="w-full max-w-sm flex items-center justify-between">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-400">
           <ShieldCheck className="w-4 h-4" />
           <span>DOST Security Lock</span>
         </div>
@@ -115,14 +115,14 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
 
       {/* Center Lock Crest & PIN Dots */}
       <div className="w-full max-w-xs flex flex-col items-center text-center my-auto">
-        <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center mb-4">
-          <Lock className="w-8 h-8 text-emerald-300" />
+        <div className="w-16 h-16 rounded-2xl bg-[#23272E] border border-emerald-400/30 flex items-center justify-center mb-4">
+          <Lock className="w-8 h-8 text-emerald-400" />
         </div>
 
         <h2 className="text-xl font-bold font-['Outfit'] text-white">
           {title || (mode === 'app' ? 'DOST is Locked' : 'Locked Chat')}
         </h2>
-        <p className="text-xs text-emerald-100/75 mt-1 mb-6">
+        <p className="text-xs text-zinc-400 mt-1 mb-6">
           {subtitle ||
             (hasPin
               ? 'Enter your 4-digit PIN or use Biometric unlock'
@@ -137,7 +137,7 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
                 className={`w-3.5 h-3.5 rounded-full transition-all ${
                   idx < pin.length
                     ? 'bg-emerald-400 scale-110'
-                    : 'bg-white/20 border border-white/25'
+                    : 'bg-white/15 border border-white/25'
                 }`}
               />
             ))}
@@ -156,7 +156,7 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
                 key={d}
                 type="button"
                 onClick={() => void handleDigit(d)}
-                className="h-14 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 text-lg font-bold font-['Outfit'] transition-all cursor-pointer"
+                className="h-14 rounded-2xl bg-[#23272E] hover:bg-[#2C313A] border border-white/10 active:scale-95 text-lg font-bold font-['Outfit'] text-zinc-100 transition-all cursor-pointer"
               >
                 {d}
               </button>
@@ -166,7 +166,7 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
               type="button"
               onClick={() => void triggerBiometric()}
               disabled={!bioEnabled && !biometricAvailable}
-              className="h-14 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 active:scale-95 flex items-center justify-center text-emerald-300 disabled:opacity-35 transition-all cursor-pointer"
+              className="h-14 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/20 active:scale-95 flex items-center justify-center text-emerald-300 disabled:opacity-35 transition-all cursor-pointer"
               title={biometricLabel}
             >
               <Fingerprint className="w-6 h-6" />
@@ -175,7 +175,7 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
             <button
               type="button"
               onClick={() => void handleDigit('0')}
-              className="h-14 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 text-lg font-bold font-['Outfit'] transition-all cursor-pointer"
+              className="h-14 rounded-2xl bg-[#23272E] hover:bg-[#2C313A] border border-white/10 active:scale-95 text-lg font-bold font-['Outfit'] text-zinc-100 transition-all cursor-pointer"
             >
               0
             </button>
@@ -183,7 +183,7 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
             <button
               type="button"
               onClick={() => setPin((p) => p.slice(0, -1))}
-              className="h-14 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 flex items-center justify-center text-emerald-100 transition-all cursor-pointer"
+              className="h-14 rounded-2xl bg-[#23272E] hover:bg-[#2C313A] border border-white/10 active:scale-95 flex items-center justify-center text-zinc-300 transition-all cursor-pointer"
               title="Backspace"
             >
               <Delete className="w-5 h-5" />
@@ -201,7 +201,7 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
         )}
       </div>
 
-      <p className="text-[11px] text-emerald-200/60 tracking-wide">
+      <p className="text-[11px] text-zinc-500 tracking-wide">
         DOST Protected · Developed by Husnain Butt
       </p>
     </div>

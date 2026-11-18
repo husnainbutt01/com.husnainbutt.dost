@@ -3,7 +3,7 @@
 
 @layer base {
   body {
-    @apply antialiased text-slate-800 bg-slate-900 selection:bg-emerald-600 selection:text-white;
+    @apply antialiased bg-[#F4F6F8] dark:bg-[#181A1D] text-slate-900 dark:text-zinc-100 selection:bg-emerald-600 selection:text-white;
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   }
 }
@@ -19,12 +19,21 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(15, 169, 88, 0.25);
+  background: rgba(15, 169, 88, 0.28);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(15, 169, 88, 0.5);
+  background: rgba(15, 169, 88, 0.52);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 @keyframes progress {
@@ -63,6 +72,29 @@
   }
 }
 
+@keyframes typingBounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.typing-dot-1 {
+  animation: typingBounce 1.2s infinite ease-in-out 0s;
+}
+
+.typing-dot-2 {
+  animation: typingBounce 1.2s infinite ease-in-out 0.18s;
+}
+
+.typing-dot-3 {
+  animation: typingBounce 1.2s infinite ease-in-out 0.36s;
+}
+
 .animate-splash-scale {
   animation: splashScaleIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -78,4 +110,16 @@
 .animate-splash-bar {
   transform-origin: left center;
   animation: splashBarFill 1.65s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-dot-1,
+  .typing-dot-2,
+  .typing-dot-3,
+  .animate-splash-scale,
+  .animate-splash-rise,
+  .animate-splash-rise-late,
+  .animate-splash-bar {
+    animation: none !important;
+  }
 }

@@ -55,7 +55,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, current
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs animate-fade-in select-none">
-      <div className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[90vh]">
+      <div className="w-full max-w-2xl bg-white dark:bg-[#22252B] dark:text-zinc-100 rounded-3xl shadow-2xl overflow-hidden border border-slate-100 dark:border-white/10 flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="bg-gradient-to-r from-[#084825] via-[#0B8043] to-[#0FA958] p-5 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -77,9 +77,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, current
         {/* Content */}
         <div className="p-6 overflow-y-auto space-y-6">
           {actionNotice && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center justify-between">
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-200 text-xs rounded-xl flex items-center justify-between">
               <span className="font-semibold">{actionNotice}</span>
-              <button onClick={() => setActionNotice(null)} className="text-emerald-700 cursor-pointer">
+              <button onClick={() => setActionNotice(null)} className="text-emerald-700 dark:text-emerald-300 cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -87,36 +87,36 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, current
 
           {/* Key Metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="p-3.5 bg-emerald-50 rounded-2xl border border-emerald-100">
-              <span className="text-xs text-emerald-800 font-medium flex items-center gap-1.5">
+            <div className="p-3.5 bg-emerald-50 dark:bg-emerald-500/15 rounded-2xl border border-emerald-100 dark:border-emerald-500/25">
+              <span className="text-xs text-emerald-800 dark:text-emerald-200 font-medium flex items-center gap-1.5">
                 <Users className="w-4 h-4" /> Users
               </span>
-              <p className="text-2xl font-extrabold text-emerald-950 mt-1 font-mono">{users.length}</p>
+              <p className="text-2xl font-extrabold text-emerald-950 dark:text-emerald-100 mt-1 font-mono">{users.length}</p>
             </div>
-            <div className="p-3.5 bg-blue-50 rounded-2xl border border-blue-100">
-              <span className="text-xs text-blue-800 font-medium flex items-center gap-1.5">
+            <div className="p-3.5 bg-blue-50 dark:bg-blue-500/15 rounded-2xl border border-blue-100 dark:border-blue-500/25">
+              <span className="text-xs text-blue-800 dark:text-blue-200 font-medium flex items-center gap-1.5">
                 <MessageSquare className="w-4 h-4" /> Active Chats
               </span>
-              <p className="text-2xl font-extrabold text-blue-950 mt-1 font-mono">{chatsCount}</p>
+              <p className="text-2xl font-extrabold text-blue-950 dark:text-blue-100 mt-1 font-mono">{chatsCount}</p>
             </div>
-            <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-100">
-              <span className="text-xs text-amber-800 font-medium flex items-center gap-1.5">
+            <div className="p-3.5 bg-amber-50 dark:bg-amber-500/15 rounded-2xl border border-amber-100 dark:border-amber-500/25">
+              <span className="text-xs text-amber-800 dark:text-amber-200 font-medium flex items-center gap-1.5">
                 <AlertTriangle className="w-4 h-4" /> Reports
               </span>
-              <p className="text-2xl font-extrabold text-amber-950 mt-1 font-mono">{reports.length}</p>
+              <p className="text-2xl font-extrabold text-amber-950 dark:text-amber-100 mt-1 font-mono">{reports.length}</p>
             </div>
-            <div className="p-3.5 bg-purple-50 rounded-2xl border border-purple-100">
-              <span className="text-xs text-purple-800 font-medium flex items-center gap-1.5">
+            <div className="p-3.5 bg-purple-50 dark:bg-purple-500/15 rounded-2xl border border-purple-100 dark:border-purple-500/25">
+              <span className="text-xs text-purple-800 dark:text-purple-200 font-medium flex items-center gap-1.5">
                 <Database className="w-4 h-4" /> Firestore
               </span>
-              <p className="text-xs font-bold text-purple-900 mt-2">Real-Time Live</p>
+              <p className="text-xs font-bold text-purple-900 dark:text-purple-100 mt-2">Real-Time Live</p>
             </div>
           </div>
 
           {/* Broadcast Announcement Bar */}
-          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80">
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <Radio className="w-4 h-4 text-emerald-600" />
+          <div className="p-4 bg-slate-50 dark:bg-[#282C34] rounded-2xl border border-slate-200/80 dark:border-white/10">
+            <h3 className="text-xs font-bold text-slate-800 dark:text-zinc-100 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Radio className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               Broadcast Notification to All Registered Users
             </h3>
             <form onSubmit={handleBroadcast} className="flex gap-2">
@@ -125,7 +125,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, current
                 value={broadcastText}
                 onChange={(e) => setBroadcastText(e.target.value)}
                 placeholder="Type system announcement..."
-                className="flex-1 px-3 py-2 text-xs rounded-xl bg-white border border-slate-200 focus:outline-none focus:border-emerald-500"
+                className="flex-1 px-3 py-2 text-xs rounded-xl bg-white dark:bg-[#1A1D22] text-slate-900 dark:text-zinc-100 border border-slate-200 dark:border-white/10 focus:outline-none focus:border-emerald-500"
               />
               <button
                 type="submit"
@@ -135,7 +135,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, current
               </button>
             </form>
             {broadcastSent && (
-              <p className="text-[11px] text-emerald-700 font-medium mt-1.5 flex items-center gap-1">
+              <p className="text-[11px] text-emerald-700 dark:text-emerald-300 font-medium mt-1.5 flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Broadcast notification sent to all registered users.
               </p>
             )}
@@ -143,10 +143,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, current
 
           {/* User Directory Management */}
           <div>
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2.5">
+            <h3 className="text-xs font-bold text-slate-800 dark:text-zinc-100 uppercase tracking-wider mb-2.5">
               Registered User Accounts ({users.length})
             </h3>
-            <div className="space-y-2 max-h-48 overflow-y-auto divide-y divide-slate-100 border border-slate-100 rounded-2xl p-1">
+            <div className="space-y-2 max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-white/10 border border-slate-100 dark:border-white/10 rounded-2xl p-1">
               {users.map((u) => {
                 const isSelf = currentUser?.id === u.id;
                 return (
@@ -155,17 +155,20 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, current
                       <img
                         src={u.photoUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.id}`}
                         alt={u.displayName}
+                        referrerPolicy="no-referrer"
                         className="w-8 h-8 rounded-full object-cover"
                       />
                       <div>
-                        <p className="font-semibold text-slate-800">{u.displayName}</p>
-                        <p className="text-[10px] text-slate-400 font-mono">{u.email}</p>
+                        <p className="font-semibold text-slate-800 dark:text-zinc-100">{u.displayName}</p>
+                        <p className="text-[10px] text-slate-400 dark:text-zinc-400 font-mono">{u.email}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <span
                         className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                          u.role === 'admin' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                          u.role === 'admin'
+                            ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-200'
+                            : 'bg-slate-100 dark:bg-[#282C34] text-slate-600 dark:text-zinc-300'
                         }`}
                       >
                         {u.role.toUpperCase()}
@@ -177,7 +180,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, current
                             await chatStore.updateUserRole(u.id, nextRole);
                             setActionNotice(`Updated ${u.displayName} role to ${nextRole.toUpperCase()}.`);
                           }}
-                          className="text-[10px] px-2 py-1 bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-800 rounded-lg font-semibold cursor-pointer"
+                          className="text-[10px] px-2 py-1 bg-slate-100 dark:bg-[#282C34] hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-slate-700 dark:text-zinc-200 hover:text-emerald-800 dark:hover:text-emerald-200 rounded-lg font-semibold cursor-pointer"
                         >
                           {u.role === 'admin' ? 'Demote' : 'Make Admin'}
                         </button>
@@ -191,11 +194,11 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, current
 
           {/* User Reports & Moderation Tickets */}
           <div>
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2.5">
+            <h3 className="text-xs font-bold text-slate-800 dark:text-zinc-100 uppercase tracking-wider mb-2.5">
               Moderation Tickets & Reports ({reports.length})
             </h3>
             {reports.length === 0 ? (
-              <p className="text-xs text-slate-400 p-3 bg-slate-50 rounded-xl text-center">
+              <p className="text-xs text-slate-400 dark:text-zinc-400 p-3 bg-slate-50 dark:bg-[#282C34] rounded-xl text-center">
                 No user reports currently pending.
               </p>
             ) : (
@@ -203,18 +206,18 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, current
                 {reports.map((rep) => (
                   <div
                     key={rep.id}
-                    className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl flex items-center justify-between text-xs"
+                    className="p-3 bg-amber-50/70 dark:bg-amber-500/15 border border-amber-200/80 dark:border-amber-500/25 rounded-xl flex items-center justify-between text-xs"
                   >
                     <div>
-                      <p className="font-bold text-amber-950">
+                      <p className="font-bold text-amber-950 dark:text-amber-200">
                         Report: {rep.reason} ({rep.status})
                       </p>
-                      <p className="text-[11px] text-amber-800">{rep.details || 'No additional details'}</p>
+                      <p className="text-[11px] text-amber-800 dark:text-amber-100/80">{rep.details || 'No additional details'}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => chatStore.updateReportStatus(rep.id, 'dismissed')}
-                        className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 rounded-lg font-medium shadow-xs cursor-pointer"
+                        className="px-2.5 py-1 bg-white dark:bg-[#282C34] hover:bg-slate-100 dark:hover:bg-white/10 text-slate-700 dark:text-zinc-200 rounded-lg font-medium shadow-xs cursor-pointer"
                       >
                         Dismiss
                       </button>

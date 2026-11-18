@@ -28,7 +28,7 @@ export const PWAInstallButton: React.FC = () => {
         <button
           type="button"
           onClick={() => setShowIOSGuide(true)}
-          className="w-full py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer"
+          className="w-full py-2.5 px-4 bg-emerald-50 dark:bg-emerald-500/15 hover:bg-emerald-100 dark:hover:bg-emerald-500/25 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-500/30 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer"
         >
           <Smartphone className="w-4 h-4" />
           <span>Install on iPhone / iPad</span>
@@ -36,17 +36,17 @@ export const PWAInstallButton: React.FC = () => {
 
         {showIOSGuide && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-            <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl border border-slate-100 text-left">
+            <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#22252B] p-5 shadow-2xl border border-slate-100 dark:border-white/10 text-left">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-bold text-slate-900">Install DOST on iPhone / iPad</h3>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-zinc-100">Install DOST on iPhone / iPad</h3>
                 <button
                   onClick={() => setShowIOSGuide(false)}
-                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
+              <p className="text-xs text-slate-600 dark:text-zinc-300 leading-relaxed">
                 1. Tap the <strong>Share</strong> button in Safari&apos;s toolbar.<br />
                 2. Scroll down and tap <strong>Add to Home Screen</strong>.<br />
                 3. DOST will work like a native app even offline!

@@ -23,10 +23,26 @@ import {
   PollData,
   PaymentData,
   PaymentMethod,
+  LocationData,
 } from '../types';
 import { sounds } from '../utils/soundEffects';
 import { notificationService } from './notificationService';
 import { formatPKR, generatePaymentRef, paymentService } from './paymentService';
+import { mediaSettingsService } from './mediaSettingsService';
+
+export const EDIT_UNSEND_WINDOW_MS = 15 * 60 * 1000;
+
+export function isMessageExpired(msg: Message, nowMs = Date.now()): boolean {
+  if (!msg.expiresAt) return false;
+  const exp = new Date(msg.expiresAt).getTime();
+  return !Number.isNaN(exp) && exp <= nowMs;
+}
+
+export function getRemainingModifyMs(msg: Message, nowMs = Date.now()): number {
+  const created = new Date(msg.createdAt).getTime();
+  if (Number.isNaN(created)) return 0;
+  return Math.max(0, EDIT_UNSEND_WINDOW_MS - (nowMs - created));
+}
 
 interface OutboxEntry {
   message: Message;
@@ -70,7 +86,32 @@ class ChatStore {
         if (navigator.onLine && this.outbox.length > 0 && this.currentUser) {
           void this.flushOfflineOutbox();
         }
+        this.pruneExpiredMessages();
       }, 8000);
+    }
+  }
+
+  private pruneExpiredMessages() {
+    const now = Date.now();
+    const expiredMine = this.messages.filter(
+      (m) => m.senderId === this.currentUser?.id && isMessageExpired(m, now)
+    );
+    const hasAnyExpired =
+      this.messages.some((m) => isMessageExpired(m, now)) ||
+      this.publicChannelMessages.some((m) => isMessageExpired(m, now));
+
+    if (expiredMine.length > 0 && typeof navigator !== 'undefined' && navigator.onLine) {
+      for (const m of expiredMine) {
+        deleteDoc(doc(db, 'messages', m.id)).catch(() => {});
+      }
+    }
+
+    if (hasAnyExpired) {
+      this.messages = this.messages.filter((m) => !isMessageExpired(m, now));
+      this.publicChannelMessages = this.publicChannelMessages.filter(
+        (m) => !isMessageExpired(m, now)
+      );
+      this.notify();
     }
   }
 
@@ -183,6 +224,9 @@ class ChatStore {
             const me = fetchedUsers.find((u) => u.id === userId);
             if (me) {
               this.currentUser = me;
+              if (me.mediaSettings) {
+                mediaSettingsService.hydrateFromProfile(me.mediaSettings);
+              }
             }
           }
           this.notify();
@@ -306,11 +350,19 @@ class ChatStore {
                 const previewText = showPreview
                   ? latestMsg.text ||
                     (latestMsg.type === 'image'
-                      ? 'Sent a photo'
+                      ? latestMsg.isViewOnce
+                        ? 'View Once photo'
+                        : 'Sent a photo'
                       : latestMsg.type === 'video'
-                      ? 'Sent a video'
+                      ? latestMsg.isViewOnce
+                        ? 'View Once video'
+                        : 'Sent a video'
                       : latestMsg.type === 'audio'
                       ? 'Sent a voice message'
+                      : latestMsg.type === 'location'
+                      ? latestMsg.location?.isLive
+                        ? 'Sharing live location'
+                        : 'Sent a location pin'
                       : latestMsg.type === 'document'
                       ? `Document: ${latestMsg.fileName || 'File'}`
                       : latestMsg.type === 'payment' && latestMsg.payment
@@ -578,10 +630,12 @@ class ChatStore {
   getUnreadCountForChat(chatId: string): number {
     if (!this.currentUser) return 0;
     const myUid = this.currentUser.id;
+    const now = Date.now();
     return this.messages.filter(
       (m) =>
         m.chatId === chatId &&
         !this.hiddenMessageIds.has(m.id) &&
+        !isMessageExpired(m, now) &&
         m.senderId !== myUid &&
         !m.isDeleted &&
         !(m.readBy || []).includes(myUid)
@@ -945,6 +999,28 @@ class ChatStore {
     }
   }
 
+  async setDisappearingDuration(chatId: string, durationSeconds: number | null) {
+    if (!this.currentUser) return;
+    const normalized = durationSeconds && durationSeconds > 0 ? durationSeconds : null;
+    this.chats = this.chats.map((c) =>
+      c.id === chatId ? { ...c, disappearingDuration: normalized } : c
+    );
+    this.notify();
+    const op = updateDoc(doc(db, 'chats', chatId), {
+      disappearingDuration: normalized,
+      updatedAt: new Date().toISOString(),
+    });
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      op.catch(() => {});
+      return;
+    }
+    try {
+      await op;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `chats/${chatId}`);
+    }
+  }
+
   async deleteChat(chatId: string) {
     this.chats = this.chats.filter((c) => c.id !== chatId);
     this.notify();
@@ -988,19 +1064,30 @@ class ChatStore {
   // Merge Firestore-synced messages, public channel posts, and offline queued outbox messages
   getMessages(chatId: string): Message[] {
     const map = new Map<string, Message>();
+    const now = Date.now();
     for (const m of this.messages) {
-      if (m.chatId === chatId && !this.hiddenMessageIds.has(m.id)) {
+      if (m.chatId === chatId && !this.hiddenMessageIds.has(m.id) && !isMessageExpired(m, now)) {
         map.set(m.id, m);
       }
     }
     for (const m of this.publicChannelMessages) {
-      if (m.chatId === chatId && !this.hiddenMessageIds.has(m.id) && !map.has(m.id)) {
+      if (
+        m.chatId === chatId &&
+        !this.hiddenMessageIds.has(m.id) &&
+        !isMessageExpired(m, now) &&
+        !map.has(m.id)
+      ) {
         map.set(m.id, m);
       }
     }
     for (const e of this.outbox) {
       const m = e.message;
-      if (m.chatId === chatId && !this.hiddenMessageIds.has(m.id) && !map.has(m.id)) {
+      if (
+        m.chatId === chatId &&
+        !this.hiddenMessageIds.has(m.id) &&
+        !isMessageExpired(m, now) &&
+        !map.has(m.id)
+      ) {
         map.set(m.id, m);
       }
     }
@@ -1088,13 +1175,25 @@ class ChatStore {
     chatId: string;
     participants?: string[];
     text?: string;
-    type?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'call_log' | 'poll' | 'payment';
+    type?:
+      | 'text'
+      | 'image'
+      | 'video'
+      | 'audio'
+      | 'document'
+      | 'call_log'
+      | 'poll'
+      | 'payment'
+      | 'location';
     poll?: PollData;
     payment?: PaymentData;
+    location?: LocationData;
     mediaUrl?: string;
     fileName?: string;
     fileSize?: string;
     duration?: number;
+    isViewOnce?: boolean;
+    isHD?: boolean;
     replyToMessageId?: string;
     replyToText?: string;
     replyToSenderName?: string;
@@ -1110,8 +1209,12 @@ class ChatStore {
       ? [this.currentUser.id]
       : params.participants || chat?.participants || [this.currentUser.id];
     const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const now = new Date().toISOString();
+    const nowMs = Date.now();
+    const now = new Date(nowMs).toISOString();
     const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
+    const disappearingSec = chat?.disappearingDuration || 0;
+    const expiresAt =
+      disappearingSec > 0 ? new Date(nowMs + disappearingSec * 1000).toISOString() : undefined;
 
     const newMessage: Message = {
       id: msgId,
@@ -1125,10 +1228,14 @@ class ChatStore {
       type: params.type || 'text',
       ...(params.poll ? { poll: params.poll } : {}),
       ...(params.payment ? { payment: params.payment } : {}),
+      ...(params.location ? { location: params.location } : {}),
       ...(params.mediaUrl ? { mediaUrl: params.mediaUrl } : {}),
       ...(params.fileName ? { fileName: params.fileName } : {}),
       ...(params.fileSize ? { fileSize: params.fileSize } : {}),
       ...(params.duration !== undefined ? { duration: params.duration } : {}),
+      ...(params.isViewOnce ? { isViewOnce: true, viewedOnceBy: [] } : {}),
+      ...(params.isHD ? { isHD: true } : {}),
+      ...(expiresAt ? { expiresAt } : {}),
       status: isOnline ? 'sent' : 'pending',
       readBy: [this.currentUser.id],
       deliveredTo: [this.currentUser.id],
@@ -1146,11 +1253,23 @@ class ChatStore {
         ? params.payment.kind === 'send'
           ? `💸 Payment: ${formatPKR(params.payment.amount)}`
           : `💳 Payment Request: ${formatPKR(params.payment.amount)}`
+        : params.type === 'location'
+        ? params.location?.isLive
+          ? '📍 Live Location'
+          : '📍 Current Location'
+        : params.isViewOnce
+        ? params.type === 'video'
+          ? '🎥 View Once Video'
+          : '📷 View Once Photo'
         : params.text ||
           (params.type === 'image'
-            ? '📷 Photo'
+            ? params.isHD
+              ? '📷 HD Photo'
+              : '📷 Photo'
             : params.type === 'video'
-            ? '🎥 Video'
+            ? params.isHD
+              ? '🎥 HD Video'
+              : '🎥 Video'
             : params.type === 'audio'
             ? '🎤 Voice message'
             : params.type === 'document'
@@ -1186,10 +1305,13 @@ class ChatStore {
             text: params.text,
             type: params.type,
             poll: params.poll,
+            location: params.location,
             mediaUrl: params.mediaUrl,
             fileName: params.fileName,
             fileSize: params.fileSize,
             duration: params.duration,
+            isViewOnce: params.isViewOnce,
+            isHD: params.isHD,
             skipBroadcastFanout: true,
           })
         );
@@ -1212,6 +1334,75 @@ class ChatStore {
     }
 
     return newMessage;
+  }
+
+  async markViewOnceOpened(messageId: string) {
+    if (!this.currentUser) return;
+    const myUid = this.currentUser.id;
+    const msg =
+      this.messages.find((m) => m.id === messageId) ||
+      this.publicChannelMessages.find((m) => m.id === messageId);
+    if (!msg || !msg.isViewOnce) return;
+
+    const alreadyViewed = (msg.viewedOnceBy || []).includes(myUid);
+    if (alreadyViewed) return;
+
+    const chat = this.getChat(msg.chatId);
+    const nextViewed = Array.from(new Set([...(msg.viewedOnceBy || []), myUid]));
+    const shouldPurgeMedia = !chat || chat.type === 'private';
+
+    this.messages = this.messages.map((m) =>
+      m.id === messageId
+        ? {
+            ...m,
+            viewedOnceBy: nextViewed,
+            ...(shouldPurgeMedia ? { mediaUrl: '' } : {}),
+          }
+        : m
+    );
+    this.notify();
+
+    try {
+      await updateDoc(doc(db, 'messages', messageId), {
+        viewedOnceBy: arrayUnion(myUid),
+        ...(shouldPurgeMedia ? { mediaUrl: '' } : {}),
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `messages/${messageId}`);
+    }
+  }
+
+  async updateLiveLocation(messageId: string, location: LocationData) {
+    const now = new Date().toISOString();
+    this.messages = this.messages.map((m) =>
+      m.id === messageId ? { ...m, location, updatedAt: now } : m
+    );
+    const outboxEntry = this.outbox.find((e) => e.message.id === messageId);
+    if (outboxEntry) {
+      outboxEntry.message.location = location;
+    }
+    this.notify();
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    try {
+      await updateDoc(doc(db, 'messages', messageId), {
+        location,
+        updatedAt: now,
+      });
+    } catch {}
+  }
+
+  async stopLiveLocation(messageId: string) {
+    const msg = this.messages.find((m) => m.id === messageId);
+    if (!msg || !msg.location) return;
+    const stoppedLocation: LocationData = {
+      ...msg.location,
+      isLive: true,
+      isStopped: true,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.updateLiveLocation(messageId, stoppedLocation);
   }
 
   async sendPollMessage(
@@ -1401,6 +1592,9 @@ class ChatStore {
     const msg =
       this.messages.find((m) => m.id === messageId) ||
       this.publicChannelMessages.find((m) => m.id === messageId);
+    if (msg && getRemainingModifyMs(msg) <= 0) {
+      throw new Error('Messages can only be edited within 15 minutes of sending.');
+    }
     const now = new Date().toISOString();
 
     const op = updateDoc(doc(db, 'messages', messageId), {
@@ -1447,6 +1641,9 @@ class ChatStore {
     const msg =
       this.messages.find((m) => m.id === messageId) ||
       this.publicChannelMessages.find((m) => m.id === messageId);
+    if (msg && getRemainingModifyMs(msg) <= 0) {
+      throw new Error('Messages can only be unsent for everyone within 15 minutes.');
+    }
     const now = new Date().toISOString();
 
     const op = updateDoc(doc(db, 'messages', messageId), {

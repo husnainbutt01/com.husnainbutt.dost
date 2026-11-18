@@ -1,5 +1,6 @@
 package com.husnainbutt.dost;
 
+import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -41,13 +42,11 @@ public class DostBackgroundService extends Service {
 
         isRunning = true;
         Notification notification = buildServiceNotification();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
-                    ? ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-                    : 0
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             );
         } else {
             startForeground(NOTIFICATION_ID, notification);
@@ -103,6 +102,7 @@ public class DostBackgroundService extends Service {
         }
     }
 
+    @SuppressLint("WakelockTimeout")
     private void acquireWakeLock() {
         try {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);

@@ -18,6 +18,9 @@ import {
   Megaphone,
   Lock,
   Unlock,
+  Sun,
+  Moon,
+  Timer,
 } from 'lucide-react';
 
 interface ChatListProps {
@@ -31,6 +34,8 @@ interface ChatListProps {
   onOpenChannelsBroadcast: () => void;
 }
 
+type InboxFilter = 'all' | 'unread' | 'pinned' | 'groups' | 'channels' | 'locked' | 'archived';
+
 export const ChatList: React.FC<ChatListProps> = ({
   chats,
   activeChatId,
@@ -42,9 +47,11 @@ export const ChatList: React.FC<ChatListProps> = ({
   onOpenChannelsBroadcast,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'unread' | 'groups' | 'channels' | 'locked' | 'archived'>('all');
+  const [filter, setFilter] = useState<InboxFilter>('all');
   const [menuChatId, setMenuChatId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [pinPromptChatId, setPinPromptChatId] = useState<string | null>(null);
+  const [inlinePin, setInlinePin] = useState('');
   const [registeredUsers, setRegisteredUsers] = useState<User[]>(chatStore.getUsers());
   const [chatTheme, setChatTheme] = useState<ChatThemeConfig>(themeService.getTheme());
   const [lockedIds, setLockedIds] = useState<string[]>(securityService.getLockedChatIds());
@@ -117,6 +124,11 @@ export const ChatList: React.FC<ChatListProps> = ({
     return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
 
+  const unreadChatsCount = chats.filter((c) => chatStore.getUnreadCountForChat(c.id) > 0).length;
+  const pinnedChatsCount = currentUser
+    ? chats.filter((c) => (c.pinnedBy || []).includes(currentUser.id)).length
+    : 0;
+
   const trimmedQuery = searchQuery.trim().toLowerCase();
 
   const filteredChats = sourceChats.filter((chat) => {
@@ -128,7 +140,9 @@ export const ChatList: React.FC<ChatListProps> = ({
     }
 
     const unreadCount = chatStore.getUnreadCountForChat(chat.id);
+    const isPinned = currentUser ? (chat.pinnedBy || []).includes(currentUser.id) : false;
     if (filter === 'unread' && unreadCount === 0) return false;
+    if (filter === 'pinned' && !isPinned) return false;
     if (filter === 'groups' && chat.type !== 'group') return false;
     if (filter === 'channels' && chat.type !== 'channel' && chat.type !== 'broadcast') return false;
 
@@ -143,7 +157,6 @@ export const ChatList: React.FC<ChatListProps> = ({
     );
   });
 
-  // Also search all registered users by name, email, or phone directly from Chats search
   const shownPrivatePartnerIds = new Set(
     filteredChats
       .filter((c) => c.type === 'private')
@@ -165,87 +178,80 @@ export const ChatList: React.FC<ChatListProps> = ({
 
   return (
     <div
-      className={`flex flex-col h-full border-r w-full md:w-80 lg:w-96 shrink-0 select-none relative transition-colors ${
-        chatTheme.isDark
-          ? 'bg-[#0B1812] border-emerald-400/12 text-slate-100'
-          : 'bg-white border-slate-200 text-slate-800'
-      }`}
+      className="flex flex-col h-full border-r border-slate-200/80 dark:border-white/10 w-full md:w-[340px] lg:w-[380px] shrink-0 select-none relative transition-colors bg-white dark:bg-[#1E2126] text-slate-900 dark:text-zinc-100"
+      onClick={() => menuChatId && setMenuChatId(null)}
     >
-      {/* Top Header */}
-      <div
-        className={`p-4 border-b flex items-center justify-between ${
-          chatTheme.isDark ? 'border-emerald-400/10' : 'border-slate-100'
-        }`}
-      >
+      {/* Top Inbox Header */}
+      <div className="px-4 pt-4 pb-3 border-b border-slate-100 dark:border-white/10 flex items-center justify-between">
         <div>
-          <h1
-            className={`text-xl font-bold font-['Outfit'] flex items-center gap-2 ${
-              chatTheme.isDark ? 'text-white' : 'text-slate-800'
-            }`}
-          >
-            <span>Chats</span>
-            <span className="text-xs font-semibold text-emerald-600">
-              · {sourceChats.length}
+          <h1 className="text-xl font-bold font-['Outfit'] flex items-center gap-2 text-slate-900 dark:text-white tracking-tight">
+            <span>DOST Inbox</span>
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 tabular-nums">
+              {sourceChats.length}
             </span>
           </h1>
-          <p className={`text-[11px] ${chatTheme.isDark ? 'text-emerald-200/50' : 'text-slate-400'}`}>
-            DOST Messaging App · Husnain Butt
+          <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
+            {unreadChatsCount > 0
+              ? `${unreadChatsCount} unread conversation${unreadChatsCount > 1 ? 's' : ''}`
+              : 'All caught up · Quick & encrypted chats'}
           </p>
         </div>
 
         <div className="flex items-center gap-1">
+          {/* Mobile Quick Dark/Light Toggle */}
           <button
+            type="button"
+            onClick={() => themeService.toggleDarkLight()}
+            className="md:hidden min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-slate-600 dark:text-amber-300 hover:bg-slate-100 dark:hover:bg-white/[0.08] cursor-pointer"
+            title={chatTheme.isDark ? 'Switch to Daylight Mode' : 'Switch to Charcoal Dark Mode'}
+            aria-label="Toggle Dark Mode"
+          >
+            {chatTheme.isDark ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
+          </button>
+
+          <button
+            type="button"
             onClick={onOpenChannelsBroadcast}
-            className={`p-2 rounded-xl transition-colors cursor-pointer ${
-              chatTheme.isDark
-                ? 'text-emerald-200/80 hover:text-emerald-300 hover:bg-emerald-500/15'
-                : 'text-slate-600 hover:text-emerald-700 hover:bg-emerald-50'
-            }`}
+            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-slate-600 dark:text-zinc-300 hover:text-emerald-600 dark:hover:text-emerald-300 hover:bg-slate-100 dark:hover:bg-white/[0.07] transition-colors cursor-pointer"
             title="Channels & Broadcast Lists"
           >
-            <Megaphone className="w-5 h-5" />
+            <Megaphone className="w-4.5 h-4.5" />
           </button>
           <button
+            type="button"
             onClick={onNewGroup}
-            className={`p-2 rounded-xl transition-colors cursor-pointer ${
-              chatTheme.isDark
-                ? 'text-emerald-200/80 hover:text-emerald-300 hover:bg-emerald-500/15'
-                : 'text-slate-600 hover:text-emerald-700 hover:bg-emerald-50'
-            }`}
+            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-slate-600 dark:text-zinc-300 hover:text-emerald-600 dark:hover:text-emerald-300 hover:bg-slate-100 dark:hover:bg-white/[0.07] transition-colors cursor-pointer"
             title="Create New Group"
           >
-            <Users className="w-5 h-5" />
+            <Users className="w-4.5 h-4.5" />
           </button>
           <button
+            type="button"
             onClick={onNewChat}
-            className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-sm transition-all cursor-pointer"
+            className="min-h-[40px] min-w-[40px] flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-sm transition-all cursor-pointer ml-0.5"
             title="Start New Direct Chat"
           >
-            <MessageSquarePlus className="w-5 h-5" />
+            <MessageSquarePlus className="w-4.5 h-4.5" />
           </button>
         </div>
       </div>
 
-      {/* Search Input */}
-      <div className={`p-3 border-b ${chatTheme.isDark ? 'border-emerald-400/10' : 'border-slate-100'}`}>
+      {/* Search Bar & Quick Inbox Filters */}
+      <div className="px-3.5 pt-3 pb-2.5 border-b border-slate-100 dark:border-white/10 space-y-2.5">
         <div className="relative">
-          <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-zinc-400" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search chats or registered user name..."
-            className={`w-full pl-9 pr-8 py-2 rounded-xl text-xs placeholder-slate-400 border border-transparent focus:border-emerald-500 focus:outline-none transition-all ${
-              chatTheme.isDark
-                ? 'bg-[#12261D] focus:bg-[#173025] text-slate-100'
-                : 'bg-slate-100 focus:bg-white text-slate-800'
-            }`}
+            placeholder="Search people, messages, or emails..."
+            className="w-full pl-10 pr-8 py-2.5 rounded-xl text-xs bg-slate-100 dark:bg-[#272B32] focus:bg-white dark:focus:bg-[#2E333C] text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-400 border border-transparent focus:border-emerald-500/70 focus:outline-none transition-all"
           />
           {searchQuery && (
             <button
               type="button"
               onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 p-1 rounded cursor-pointer"
               title="Clear search"
             >
               <X className="w-3.5 h-3.5" />
@@ -253,55 +259,66 @@ export const ChatList: React.FC<ChatListProps> = ({
           )}
         </div>
 
-        {/* Filter Segmented Control */}
-        <div className="flex items-center gap-1 mt-2.5 overflow-x-auto">
+        {/* Filter Bar */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
           {(
             [
               { id: 'all', label: 'All' },
-              { id: 'unread', label: 'Unread' },
+              {
+                id: 'unread',
+                label: unreadChatsCount > 0 ? `Unread (${unreadChatsCount})` : 'Unread',
+              },
+              ...(pinnedChatsCount > 0
+                ? [{ id: 'pinned' as const, label: `Pinned (${pinnedChatsCount})` }]
+                : []),
               { id: 'groups', label: 'Groups' },
               { id: 'channels', label: 'Channels' },
-              ...(lockedIds.length > 0 ? [{ id: 'locked' as const, label: `Locked (${lockedIds.length})` }] : []),
+              ...(lockedIds.length > 0
+                ? [{ id: 'locked' as const, label: `Locked (${lockedIds.length})` }]
+                : []),
               { id: 'archived', label: `Archived (${archivedChats.length})` },
             ] as const
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setFilter(tab.id)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
-                filter === tab.id
-                  ? 'bg-emerald-600 text-white'
-                  : chatTheme.isDark
-                  ? 'text-emerald-100/70 hover:bg-emerald-500/15'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+          ).map((tab) => {
+            const active = filter === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setFilter(tab.id)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                  active
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-[#272B32] text-slate-600 dark:text-zinc-300 hover:bg-slate-200/70 dark:hover:bg-[#31363F]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* Chats Scrollable List */}
-      <div
-        className={`flex-1 overflow-y-auto pb-16 md:pb-0 p-1.5 space-y-0.5 ${
-          chatTheme.isDark ? 'divide-emerald-400/5' : 'divide-slate-50'
-        }`}
-      >
+      <div className="flex-1 overflow-y-auto pb-20 md:pb-2 p-2 space-y-1">
         {filteredChats.length === 0 && matchedRegisteredUsers.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 flex flex-col items-center justify-center h-48">
-            <MessageSquarePlus className="w-10 h-10 text-slate-300 mb-2 stroke-1" />
+          <div className="p-8 text-center text-slate-400 dark:text-zinc-400 flex flex-col items-center justify-center h-56">
+            <MessageSquarePlus className="w-10 h-10 text-slate-300 dark:text-zinc-600 mb-2 stroke-1.5" />
             <p className="text-xs font-medium">
               {trimmedQuery
                 ? `No chats or registered users matching "${searchQuery.trim()}"`
                 : filter === 'archived'
                 ? 'No archived chats'
+                : filter === 'unread'
+                ? 'No unread messages'
+                : filter === 'pinned'
+                ? 'No pinned chats yet'
                 : 'No conversations yet'}
             </p>
-            {filter !== 'archived' && !trimmedQuery && (
+            {filter === 'all' && !trimmedQuery && (
               <button
+                type="button"
                 onClick={onNewChat}
-                className="mt-3 text-xs text-emerald-700 font-semibold hover:underline cursor-pointer"
+                className="mt-3 text-xs text-emerald-600 dark:text-emerald-400 font-semibold hover:underline cursor-pointer"
               >
                 Message a registered DOST user
               </button>
@@ -317,8 +334,11 @@ export const ChatList: React.FC<ChatListProps> = ({
               const typing = isSomeoneTyping(chat);
               const isPinned = currentUser ? (chat.pinnedBy || []).includes(currentUser.id) : false;
               const isMuted = currentUser ? (chat.mutedBy || []).includes(currentUser.id) : false;
-              const isArchived = currentUser ? (chat.archivedBy || []).includes(currentUser.id) : false;
+              const isArchived = currentUser
+                ? (chat.archivedBy || []).includes(currentUser.id)
+                : false;
               const unreadCount = chatStore.getUnreadCountForChat(chat.id);
+              const hasUnread = unreadCount > 0;
 
               return (
                 <div
@@ -326,187 +346,245 @@ export const ChatList: React.FC<ChatListProps> = ({
                   onClick={() => onSelectChat(chat)}
                   className={`relative flex items-center gap-3 p-3 rounded-2xl transition-all cursor-pointer group ${
                     isActive
-                      ? chatTheme.isDark
-                        ? 'bg-emerald-500/15 ring-1 ring-emerald-400/25'
-                        : 'bg-emerald-50/90 ring-1 ring-emerald-500/20'
-                      : chatTheme.isDark
-                      ? 'hover:bg-emerald-500/8'
-                      : 'hover:bg-slate-50'
+                      ? 'bg-emerald-500/14 dark:bg-emerald-500/18 ring-1 ring-emerald-500/35'
+                      : hasUnread
+                      ? 'bg-slate-50/90 dark:bg-[#252930] hover:bg-slate-100/90 dark:hover:bg-[#2B3038]'
+                      : 'hover:bg-slate-50 dark:hover:bg-[#252930]/75'
                   }`}
                 >
-                {/* Avatar with Online Badge */}
-                <div className="relative shrink-0">
-                  <img
-                    src={avatar}
-                    alt={title}
-                    className="w-12 h-12 rounded-full object-cover border border-slate-200/70"
-                  />
-                  {isOnline && (
-                    <span
-                      className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white shadow-xs"
-                      title="Online"
+                  {/* Avatar with Online Status */}
+                  <div className="relative shrink-0">
+                    <img
+                      src={avatar}
+                      alt={title}
+                      referrerPolicy="no-referrer"
+                      className="w-12 h-12 rounded-full object-cover border border-slate-200/80 dark:border-white/10"
                     />
-                  )}
-                  {chat.type === 'group' && (
-                    <span className="absolute -bottom-1 -left-1 bg-emerald-800 text-white text-[9px] px-1 py-0.2 rounded font-semibold">
-                      GRP
-                    </span>
-                  )}
-                  {chat.type === 'channel' && (
-                    <span className="absolute -bottom-1 -left-1 bg-sky-700 text-white text-[9px] px-1 py-0.2 rounded font-semibold">
-                      CH
-                    </span>
-                  )}
-                  {chat.type === 'broadcast' && (
-                    <span className="absolute -bottom-1 -left-1 bg-amber-600 text-white text-[9px] px-1 py-0.2 rounded font-semibold">
-                      BC
-                    </span>
-                  )}
-                  {lockedIds.includes(chat.id) && (
-                    <span
-                      className="absolute -top-1 -right-1 w-5 h-5 bg-slate-900 text-emerald-300 rounded-full flex items-center justify-center border border-white"
-                      title="Locked Chat"
-                    >
-                      <Lock className="w-2.5 h-2.5" />
-                    </span>
-                  )}
-                </div>
-
-                {/* Content Details */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <span
-                      className={`text-sm font-semibold truncate ${
-                        chatTheme.isDark
-                          ? 'text-white'
-                          : isActive
-                          ? 'text-emerald-950'
-                          : 'text-slate-800'
-                      }`}
-                    >
-                      {title}
-                    </span>
-                    <span className="text-[11px] text-slate-400 font-mono shrink-0 ml-2">
-                      {formatChatTime(chat.lastMessageTime)}
-                    </span>
+                    {isOnline && (
+                      <span
+                        className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white dark:border-[#1E2126]"
+                        title="Online"
+                      />
+                    )}
+                    {chat.type === 'group' && (
+                      <span className="absolute -bottom-1 -left-1 bg-emerald-700 text-white text-[9px] px-1.5 py-0.2 rounded-md font-bold shadow-xs">
+                        GRP
+                      </span>
+                    )}
+                    {chat.type === 'channel' && (
+                      <span className="absolute -bottom-1 -left-1 bg-sky-600 text-white text-[9px] px-1.5 py-0.2 rounded-md font-bold shadow-xs">
+                        CH
+                      </span>
+                    )}
+                    {chat.type === 'broadcast' && (
+                      <span className="absolute -bottom-1 -left-1 bg-amber-600 text-white text-[9px] px-1.5 py-0.2 rounded-md font-bold shadow-xs">
+                        BC
+                      </span>
+                    )}
+                    {lockedIds.includes(chat.id) && (
+                      <span
+                        className="absolute -top-1 -right-1 w-5 h-5 bg-zinc-900 text-emerald-300 rounded-full flex items-center justify-center border border-white/25"
+                        title="Locked Chat"
+                      >
+                        <Lock className="w-2.5 h-2.5" />
+                      </span>
+                    )}
                   </div>
 
-                  <div className="flex items-center justify-between">
-                    <p className={`text-xs truncate pr-2 max-w-[200px] ${typing ? 'text-emerald-600 font-semibold' : 'text-slate-500'}`}>
-                      {typing ? (
-                        'typing...'
-                      ) : (
-                        <>
-                          {currentUser && chat.lastSenderId === currentUser.id && chat.lastMessage && (
-                            <CheckCheck className="w-3.5 h-3.5 text-emerald-600 inline mr-1" />
-                          )}
-                          {chat.lastMessage || 'Tap to start messaging'}
-                        </>
-                      )}
-                    </p>
+                  {/* Row Content: Name, Timestamp, Last Message Preview & Unread Badge */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2 mb-0.5">
+                      <span
+                        className={`text-sm truncate flex items-center gap-1.5 ${
+                          hasUnread
+                            ? 'font-bold text-slate-950 dark:text-white'
+                            : 'font-semibold text-slate-800 dark:text-zinc-100'
+                        }`}
+                      >
+                        {hasUnread && (
+                          <span
+                            className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"
+                            aria-hidden="true"
+                          />
+                        )}
+                        <span className="truncate">{title}</span>
+                      </span>
+                      <span
+                        className={`text-[11px] font-mono tabular-nums shrink-0 ${
+                          hasUnread
+                            ? 'font-bold text-emerald-600 dark:text-emerald-400'
+                            : 'text-slate-400 dark:text-zinc-400'
+                        }`}
+                      >
+                        {formatChatTime(chat.lastMessageTime)}
+                      </span>
+                    </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {isPinned && <Pin className="w-3 h-3 text-emerald-700 rotate-45" />}
-                      {isMuted && <VolumeX className="w-3 h-3 text-slate-400" />}
-                      {unreadCount > 0 && (
-                        <span className="bg-emerald-600 text-white font-bold text-[10px] min-w-4 h-4 px-1 rounded-full flex items-center justify-center">
-                          {unreadCount}
-                        </span>
-                      )}
+                    <div className="flex items-center justify-between gap-2">
+                      <p
+                        className={`text-xs truncate pr-1 ${
+                          typing
+                            ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
+                            : hasUnread
+                            ? 'text-slate-800 dark:text-zinc-100 font-semibold'
+                            : 'text-slate-500 dark:text-zinc-400'
+                        }`}
+                      >
+                        {typing ? (
+                          'typing...'
+                        ) : (
+                          <>
+                            {currentUser && chat.lastSenderId === currentUser.id && chat.lastMessage && (
+                              <CheckCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 inline mr-1 shrink-0" />
+                            )}
+                            {chat.lastMessage || 'Tap to start messaging'}
+                          </>
+                        )}
+                      </p>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Desktop quick Pin & Archive triggers on hover */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            chatStore.togglePinChat(chat.id);
+                          }}
+                          className="hidden md:inline-flex opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-slate-200/70 dark:hover:bg-white/10 text-slate-400 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-opacity cursor-pointer"
+                          title={isPinned ? 'Unpin Chat' : 'Pin Chat'}
+                        >
+                          <Pin className={`w-3.5 h-3.5 ${isPinned ? 'text-emerald-500 fill-emerald-500/30 rotate-45' : ''}`} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            chatStore.toggleArchiveChat(chat.id);
+                          }}
+                          className="hidden md:inline-flex opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-slate-200/70 dark:hover:bg-white/10 text-slate-400 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-opacity cursor-pointer"
+                          title={isArchived ? 'Unarchive Chat' : 'Archive Chat'}
+                        >
+                          <Archive className="w-3.5 h-3.5" />
+                        </button>
+
+                        {(chat.disappearingDuration || 0) > 0 && (
+                          <span title="Disappearing messages active">
+                            <Timer className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          </span>
+                        )}
+                        {isPinned && (
+                          <Pin className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 rotate-45 group-hover:md:hidden" />
+                        )}
+                        {isMuted && <VolumeX className="w-3.5 h-3.5 text-slate-400 dark:text-zinc-500" />}
+                        {hasUnread && (
+                          <span className="bg-emerald-600 dark:bg-emerald-500 text-white dark:text-slate-950 font-bold text-[10px] min-w-[20px] h-5 px-1.5 rounded-full flex items-center justify-center tabular-nums shadow-xs">
+                            {unreadCount > 99 ? '99+' : unreadCount}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Context Menu Button */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMenuChatId(menuChatId === chat.id ? null : chat.id);
-                  }}
-                  className="opacity-70 md:opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer"
-                >
-                  <MoreVertical className="w-4 h-4" />
-                </button>
-
-                {/* Floating Context Actions */}
-                {menuChatId === chat.id && (
-                  <div
-                    onClick={(e) => e.stopPropagation()}
-                    className="absolute right-4 top-12 z-30 w-44 bg-white rounded-2xl shadow-xl border border-slate-100 p-1.5 text-xs text-slate-700 animate-scale-in"
+                  {/* More Actions Button */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenuChatId(menuChatId === chat.id ? null : chat.id);
+                    }}
+                    className="opacity-80 md:opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-100 rounded-lg cursor-pointer"
+                    aria-label="Chat options"
                   >
-                    <button
-                      onClick={() => {
-                        chatStore.togglePinChat(chat.id);
-                        setMenuChatId(null);
-                      }}
-                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 rounded-xl flex items-center gap-2 cursor-pointer"
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
+
+                  {/* Floating Context Menu */}
+                  {menuChatId === chat.id && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute right-4 top-12 z-30 w-48 bg-white dark:bg-[#262A32] rounded-2xl shadow-xl border border-slate-100 dark:border-white/10 p-1.5 text-xs text-slate-700 dark:text-zinc-200 animate-scale-in"
                     >
-                      <Pin className="w-3.5 h-3.5" />
-                      <span>{isPinned ? 'Unpin Chat' : 'Pin to Top'}</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        chatStore.toggleMuteChat(chat.id);
-                        setMenuChatId(null);
-                      }}
-                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 rounded-xl flex items-center gap-2 cursor-pointer"
-                    >
-                      <VolumeX className="w-3.5 h-3.5" />
-                      <span>{isMuted ? 'Unmute' : 'Mute Notifications'}</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        chatStore.toggleArchiveChat(chat.id);
-                        setMenuChatId(null);
-                      }}
-                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 rounded-xl flex items-center gap-2 cursor-pointer"
-                    >
-                      <Archive className="w-3.5 h-3.5" />
-                      <span>{isArchived ? 'Unarchive' : 'Archive Chat'}</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (lockedIds.includes(chat.id)) {
-                          securityService.unlockChat(chat.id);
-                        } else {
-                          securityService.lockChat(chat.id);
-                        }
-                        setMenuChatId(null);
-                      }}
-                      className="w-full text-left px-3 py-1.5 hover:bg-slate-50 rounded-xl flex items-center gap-2 cursor-pointer"
-                    >
-                      {lockedIds.includes(chat.id) ? (
-                        <>
-                          <Unlock className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Unlock Chat</span>
-                        </>
-                      ) : (
-                        <>
-                          <Lock className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Lock Chat</span>
-                        </>
-                      )}
-                    </button>
-                    <div className="my-1 border-t border-slate-100" />
-                    <button
-                      onClick={() => {
-                        setConfirmDeleteId(chat.id);
-                        setMenuChatId(null);
-                      }}
-                      className="w-full text-left px-3 py-1.5 text-rose-600 hover:bg-rose-50 rounded-xl flex items-center gap-2 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Delete Chat</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          chatStore.togglePinChat(chat.id);
+                          setMenuChatId(null);
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-white/[0.06] rounded-xl flex items-center gap-2 cursor-pointer"
+                      >
+                        <Pin className="w-3.5 h-3.5 text-emerald-500" />
+                        <span>{isPinned ? 'Unpin Chat' : 'Pin to Top'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          chatStore.toggleMuteChat(chat.id);
+                          setMenuChatId(null);
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-white/[0.06] rounded-xl flex items-center gap-2 cursor-pointer"
+                      >
+                        <VolumeX className="w-3.5 h-3.5" />
+                        <span>{isMuted ? 'Unmute Notifications' : 'Mute Notifications'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          chatStore.toggleArchiveChat(chat.id);
+                          setMenuChatId(null);
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-white/[0.06] rounded-xl flex items-center gap-2 cursor-pointer"
+                      >
+                        <Archive className="w-3.5 h-3.5" />
+                        <span>{isArchived ? 'Unarchive Chat' : 'Archive Chat'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (lockedIds.includes(chat.id)) {
+                            securityService.unlockChat(chat.id);
+                          } else if (!securityService.hasPin()) {
+                            setInlinePin('');
+                            setPinPromptChatId(chat.id);
+                          } else {
+                            securityService.lockChat(chat.id);
+                          }
+                          setMenuChatId(null);
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-white/[0.06] rounded-xl flex items-center gap-2 cursor-pointer"
+                      >
+                        {lockedIds.includes(chat.id) ? (
+                          <>
+                            <Unlock className="w-3.5 h-3.5 text-emerald-500" />
+                            <span>Unlock Chat</span>
+                          </>
+                        ) : (
+                          <>
+                            <Lock className="w-3.5 h-3.5 text-emerald-500" />
+                            <span>Lock Chat</span>
+                          </>
+                        )}
+                      </button>
+                      <div className="my-1 border-t border-slate-100 dark:border-white/10" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConfirmDeleteId(chat.id);
+                          setMenuChatId(null);
+                        }}
+                        className="w-full text-left px-3 py-2 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/15 rounded-xl flex items-center gap-2 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete Chat</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
 
             {matchedRegisteredUsers.length > 0 && (
-              <div className="bg-slate-50/70">
-                <div className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50/70 border-y border-emerald-100/70 flex items-center justify-between">
+              <div className="bg-slate-50/70 dark:bg-[#23272F] rounded-2xl mt-2 overflow-hidden border border-slate-100 dark:border-white/10">
+                <div className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 bg-emerald-50/70 dark:bg-emerald-500/15 border-b border-emerald-100/70 dark:border-white/10 flex items-center justify-between">
                   <span>Registered DOST Users</span>
                   <span>{matchedRegisteredUsers.length}</span>
                 </div>
@@ -517,7 +595,7 @@ export const ChatList: React.FC<ChatListProps> = ({
                       setSearchQuery('');
                       onSelectUserToChat(user);
                     }}
-                    className="flex items-center justify-between gap-3 p-3.5 hover:bg-emerald-50/60 transition-all cursor-pointer border-b border-slate-100/70"
+                    className="flex items-center justify-between gap-3 p-3.5 hover:bg-emerald-50/60 dark:hover:bg-white/[0.05] transition-all cursor-pointer border-b last:border-b-0 border-slate-100/70 dark:border-white/5"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="relative shrink-0">
@@ -527,26 +605,25 @@ export const ChatList: React.FC<ChatListProps> = ({
                             `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`
                           }
                           alt={user.displayName}
-                          className="w-11 h-11 rounded-full object-cover border border-slate-200"
+                          referrerPolicy="no-referrer"
+                          className="w-11 h-11 rounded-full object-cover border border-slate-200 dark:border-white/10"
                         />
-                        <span
-                          className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${
-                            user.isOnline ? 'bg-emerald-500' : 'bg-slate-300'
-                          }`}
-                        />
+                        {user.isOnline && (
+                          <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white dark:border-[#23272F] bg-emerald-500" />
+                        )}
                       </div>
 
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-800 truncate">
+                        <p className="text-sm font-semibold text-slate-800 dark:text-zinc-100 truncate">
                           {user.displayName}
                         </p>
-                        <p className="text-[11px] text-slate-500 truncate">
+                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 truncate">
                           {user.bio || user.email}
                         </p>
                       </div>
                     </div>
 
-                    <span className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 text-white text-[11px] font-semibold rounded-lg shadow-xs">
+                    <span className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 text-white text-[11px] font-semibold rounded-lg shadow-xs">
                       <MessageSquare className="w-3 h-3" />
                       <span>Chat</span>
                     </span>
@@ -560,20 +637,24 @@ export const ChatList: React.FC<ChatListProps> = ({
 
       {/* In-app Delete Confirmation Dialog */}
       {confirmDeleteId && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl p-5 max-w-xs w-full shadow-2xl border border-slate-100">
-            <h3 className="text-sm font-bold text-slate-800 mb-1">Delete conversation?</h3>
-            <p className="text-xs text-slate-500 mb-4">
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white dark:bg-[#22252B] rounded-2xl p-5 max-w-xs w-full shadow-2xl border border-slate-100 dark:border-white/10">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-zinc-100 mb-1">
+              Delete conversation?
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-zinc-400 mb-4">
               This will remove the chat thread from Firestore.
             </p>
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={() => setConfirmDeleteId(null)}
-                className="flex-1 py-2 text-xs font-semibold text-slate-600 bg-slate-100 rounded-xl cursor-pointer"
+                className="flex-1 py-2 text-xs font-semibold text-slate-600 dark:text-zinc-200 bg-slate-100 dark:bg-[#2D3139] rounded-xl cursor-pointer"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={() => {
                   chatStore.deleteChat(confirmDeleteId);
                   setConfirmDeleteId(null);
@@ -584,6 +665,59 @@ export const ChatList: React.FC<ChatListProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {/* Inline 4-Digit PIN Setup Modal for Chat Lock */}
+      {pinPromptChatId && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const clean = inlinePin.replace(/\D/g, '').slice(0, 4);
+              if (clean.length !== 4) return;
+              await securityService.setPin(clean);
+              securityService.lockChat(pinPromptChatId);
+              setPinPromptChatId(null);
+              setInlinePin('');
+            }}
+            className="bg-white dark:bg-[#22252B] rounded-2xl p-5 max-w-xs w-full shadow-2xl border border-slate-100 dark:border-white/10 space-y-3"
+          >
+            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+              <Lock className="w-4 h-4" />
+              <h3 className="text-sm font-bold text-slate-800 dark:text-zinc-100">
+                Set PIN to Lock Chat
+              </h3>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-zinc-400">
+              Enter a 4-digit PIN (you can also use Fingerprint/Face ID to unlock later).
+            </p>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={inlinePin}
+              onChange={(e) => setInlinePin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="Enter 4 digits"
+              className="w-full px-3 py-2 text-sm font-mono tracking-widest text-center bg-slate-50 dark:bg-[#1A1D22] border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:border-emerald-500"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPinPromptChatId(null)}
+                className="flex-1 py-2 text-xs font-semibold text-slate-600 dark:text-zinc-200 bg-slate-100 dark:bg-[#2D3139] rounded-xl cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={inlinePin.length !== 4}
+                className="flex-1 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl disabled:opacity-50 cursor-pointer"
+              >
+                Lock Chat
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

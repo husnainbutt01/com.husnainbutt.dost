@@ -10,6 +10,7 @@ interface DostSecurityPlugin {
     title?: string;
     subtitle?: string;
   }): Promise<{ success: boolean; error?: string }>;
+  setSecureScreen(options: { secure: boolean }): Promise<{ secure: boolean }>;
 }
 
 const DostNative = Capacitor.isNativePlatform()
@@ -159,6 +160,14 @@ class SecurityService {
     if (this.state.lockedChatIds.includes(chatId)) {
       this.state.lockedChatIds = this.state.lockedChatIds.filter((id) => id !== chatId);
       this.save();
+    }
+  }
+
+  async setNativeSecureScreen(secure: boolean): Promise<void> {
+    if (Capacitor.isNativePlatform() && DostNative?.setSecureScreen) {
+      try {
+        await DostNative.setSecureScreen({ secure });
+      } catch {}
     }
   }
 

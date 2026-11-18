@@ -1,6 +1,8 @@
 package com.husnainbutt.dost;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -19,6 +21,7 @@ import android.os.Build;
 import android.os.CancellationSignal;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.view.WindowManager;
 import androidx.activity.result.ActivityResult;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
@@ -29,6 +32,7 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -40,14 +44,43 @@ public class DostNativePlugin extends Plugin {
     private static final int CALL_NOTIFICATION_ID = 2001;
     private static final int PERMISSION_REQUEST_CODE = 9012;
 
+    private static WeakReference<DostNativePlugin> instanceRef = new WeakReference<>(null);
+    private static JSObject staticPendingAction = null;
+
     private JSObject pendingAction = null;
 
     @Override
     public void load() {
+        instanceRef = new WeakReference<>(this);
         createNotificationChannels();
         if (getActivity() != null && getActivity().getIntent() != null) {
             extractIntentAction(getActivity().getIntent(), false);
         }
+    }
+
+    public static void handleDeclineFromReceiver(Context context, String callId) {
+        if (context != null) {
+            NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager != null) {
+                manager.cancel(CALL_NOTIFICATION_ID);
+            }
+        }
+
+        JSObject payload = new JSObject();
+        payload.put("action", "decline_call");
+        if (callId != null && !callId.isEmpty()) {
+            payload.put("callId", callId);
+        }
+
+        DostNativePlugin instance = instanceRef.get();
+        if (instance != null) {
+            instance.resetLockScreenFlags();
+            if (instance.hasListeners("notificationAction")) {
+                instance.notifyListeners("notificationAction", payload, true);
+                return;
+            }
+        }
+        staticPendingAction = payload;
     }
 
     @Override
@@ -93,6 +126,10 @@ public class DostNativePlugin extends Plugin {
         if (pendingAction != null) {
             JSObject result = pendingAction;
             pendingAction = null;
+            call.resolve(result);
+        } else if (staticPendingAction != null) {
+            JSObject result = staticPendingAction;
+            staticPendingAction = null;
             call.resolve(result);
         } else {
             call.resolve(new JSObject());
@@ -180,15 +217,30 @@ public class DostNativePlugin extends Plugin {
         call.resolve(buildStatusObject());
     }
 
+    @SuppressWarnings("deprecation")
+    private boolean canAuthenticateLegacy(BiometricManager bm) {
+        return bm.canAuthenticate() == BiometricManager.BIOMETRIC_SUCCESS;
+    }
+
+    @SuppressWarnings("deprecation")
+    private void enableLegacyDeviceCredential(BiometricPrompt.Builder builder) {
+        builder.setDeviceCredentialAllowed(true);
+    }
+
     @PluginMethod
     public void isBiometricAvailable(PluginCall call) {
         JSObject res = new JSObject();
         boolean available = false;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             BiometricManager bm = getContext().getSystemService(BiometricManager.class);
             if (bm != null) {
-                int canAuth = bm.canAuthenticate();
+                int canAuth = bm.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK);
                 available = (canAuth == BiometricManager.BIOMETRIC_SUCCESS);
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            BiometricManager bm = getContext().getSystemService(BiometricManager.class);
+            if (bm != null) {
+                available = canAuthenticateLegacy(bm);
             }
         }
         KeyguardManager km = (KeyguardManager) getContext().getSystemService(Context.KEYGUARD_SERVICE);
@@ -200,8 +252,29 @@ public class DostNativePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setSecureScreen(PluginCall call) {
+        boolean secure = Boolean.TRUE.equals(call.getBoolean("secure", false));
+        Activity activity = getActivity();
+        if (activity != null) {
+            activity.runOnUiThread(() -> {
+                try {
+                    if (secure) {
+                        activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+                    } else {
+                        activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+                    }
+                } catch (Exception ignored) {}
+            });
+        }
+        JSObject res = new JSObject();
+        res.put("secure", secure);
+        call.resolve(res);
+    }
+
+    @PluginMethod
     public void authenticateBiometric(PluginCall call) {
-        if (getActivity() == null) {
+        Activity activity = getActivity();
+        if (activity == null) {
             JSObject res = new JSObject();
             res.put("success", false);
             res.put("error", "Activity unavailable");
@@ -209,13 +282,17 @@ public class DostNativePlugin extends Plugin {
             return;
         }
 
-        String title = call.getString("title", "Unlock DOST");
-        String subtitle = call.getString("subtitle", "Verify your fingerprint or face to continue");
+        String rawTitle = call.getString("title", "Unlock DOST");
+        String rawSubtitle = call.getString("subtitle", "Verify your fingerprint or face to continue");
+        String title = (rawTitle != null && !rawTitle.trim().isEmpty()) ? rawTitle : "Unlock DOST";
+        String subtitle = (rawSubtitle != null && !rawSubtitle.trim().isEmpty())
+            ? rawSubtitle
+            : "Verify your fingerprint or face to continue";
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            getActivity().runOnUiThread(() -> {
+            activity.runOnUiThread(() -> {
                 try {
-                    BiometricPrompt.Builder builder = new BiometricPrompt.Builder(getContext())
+                    BiometricPrompt.Builder builder = new BiometricPrompt.Builder(activity)
                         .setTitle(title)
                         .setSubtitle(subtitle);
 
@@ -225,7 +302,7 @@ public class DostNativePlugin extends Plugin {
                             BiometricManager.Authenticators.DEVICE_CREDENTIAL
                         );
                     } else {
-                        builder.setDeviceCredentialAllowed(true);
+                        enableLegacyDeviceCredential(builder);
                     }
 
                     BiometricPrompt prompt = builder.build();
@@ -284,9 +361,10 @@ public class DostNativePlugin extends Plugin {
     }
 
     @ActivityCallback
-    private void handleCredentialResult(PluginCall call, ActivityResult result) {
+    protected void handleCredentialResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
         JSObject res = new JSObject();
-        if (result.getResultCode() == android.app.Activity.RESULT_OK) {
+        if (result != null && result.getResultCode() == Activity.RESULT_OK) {
             res.put("success", true);
         } else {
             res.put("success", false);
@@ -368,11 +446,10 @@ public class DostNativePlugin extends Plugin {
         answerIntent.putExtra("dost_call_id", callId);
         PendingIntent answerPendingIntent = PendingIntent.getActivity(getContext(), 3002, answerIntent, flags);
 
-        Intent declineIntent = new Intent(getContext(), MainActivity.class);
-        declineIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        declineIntent.putExtra("dost_action", "decline_call");
+        Intent declineIntent = new Intent(getContext(), DostCallActionReceiver.class);
+        declineIntent.setAction(DostCallActionReceiver.ACTION_DECLINE_CALL);
         declineIntent.putExtra("dost_call_id", callId);
-        PendingIntent declinePendingIntent = PendingIntent.getActivity(getContext(), 3003, declineIntent, flags);
+        PendingIntent declinePendingIntent = PendingIntent.getBroadcast(getContext(), 3003, declineIntent, flags);
 
         Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
 
@@ -415,6 +492,7 @@ public class DostNativePlugin extends Plugin {
         call.resolve();
     }
 
+    @SuppressLint("WakelockTimeout")
     @SuppressWarnings("deprecation")
     private void wakeScreenForCall(Intent callIntent) {
         try {
@@ -428,15 +506,16 @@ public class DostNativePlugin extends Plugin {
             }
         } catch (Exception ignored) {}
 
-        if (getActivity() != null) {
-            getActivity().runOnUiThread(() -> {
+        final Activity activity = getActivity();
+        if (activity != null) {
+            activity.runOnUiThread(() -> {
                 try {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                        getActivity().setShowWhenLocked(true);
-                        getActivity().setTurnScreenOn(true);
+                        activity.setShowWhenLocked(true);
+                        activity.setTurnScreenOn(true);
                         KeyguardManager km = (KeyguardManager) getContext().getSystemService(Context.KEYGUARD_SERVICE);
                         if (km != null) {
-                            km.requestDismissKeyguard(getActivity(), null);
+                            km.requestDismissKeyguard(activity, null);
                         }
                     }
                     getContext().startActivity(callIntent);
@@ -446,11 +525,12 @@ public class DostNativePlugin extends Plugin {
     }
 
     private void resetLockScreenFlags() {
-        if (getActivity() != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            getActivity().runOnUiThread(() -> {
+        final Activity activity = getActivity();
+        if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            activity.runOnUiThread(() -> {
                 try {
-                    getActivity().setShowWhenLocked(false);
-                    getActivity().setTurnScreenOn(false);
+                    activity.setShowWhenLocked(false);
+                    activity.setTurnScreenOn(false);
                 } catch (Exception ignored) {}
             });
         }
